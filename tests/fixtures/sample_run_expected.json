@@ -1,0 +1,49 @@
+{
+  "activity": {
+    "started_at": "2024-01-15T07:00:00+00:00",
+    "type": "running",
+    "distance_meters": 3156.5,
+    "duration_seconds": 1127.2,
+    "moving_time_seconds": 1127.2,
+    "elevation_gain_meters": 15.0,
+    "elevation_loss_meters": 28.0,
+    "average_heart_rate": 130,
+    "max_heart_rate": 141,
+    "average_cadence": 88,
+    "max_cadence": 91,
+    "average_power": 304,
+    "max_power": 395,
+    "normalized_power": 306,
+    "total_calories": 236,
+    "average_pace_per_km": 357.1
+  },
+  "computed_metrics": {
+    "aerobic_decoupling_pct": 7.88,
+    "efficiency_factor": 1.2818,
+    "cardiac_drift_bpm": 21,
+    "tss_score": 19.0,
+    "variability_index": 0.0917,
+    "hr_zone_distribution": {
+      "zone_1": 100.0,
+      "zone_2": 0.0,
+      "zone_3": 0.0,
+      "zone_4": 0.0,
+      "zone_5": 0.0
+    },
+    "pace_zone_distribution": {
+      "easy": 41.8,
+      "moderate": 56.0,
+      "threshold": 2.0,
+      "hard": 0.3
+    },
+    "trimp": 22.7,
+    "avg_grade_adjusted_pace_per_km": 359.7,
+    "grade_adjusted_efficiency_factor": 1.283
+  },
+  "laps_count": 4,
+  "zones_target": {
+    "threshold_heart_rate": 167,
+    "functional_threshold_power": 397,
+    "max_heart_rate": 182
+  }
+}
