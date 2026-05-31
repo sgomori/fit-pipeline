@@ -50,9 +50,8 @@ See `docs/server.md` for full endpoint documentation.
 Configuration is via environment variables. A `.env` file is supported for local development.
 
 ```bash
-# Webhook delivery
-WEBHOOK_URL=https://your-app.example.com/webhooks/activity
-WEBHOOK_SECRET=your_shared_secret
+# Webhook delivery — JSON array of {url, secret} destinations
+WEBHOOK_DESTINATIONS=[{"url":"https://your-app.example.com/webhooks/activity","secret":"your_secret"}]
 
 # Field filtering
 EXCLUDE_GPS=true

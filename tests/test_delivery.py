@@ -6,10 +6,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from fit_pipeline.config import Config
+from fit_pipeline.config import Config, WebhookDestination
 from fit_pipeline.delivery import (
     DryRunDelivery,
     FileDelivery,
+    MultiWebhookDelivery,
     WebhookDelivery,
     make_delivery,
 )
@@ -110,6 +111,45 @@ class TestDryRunDelivery:
             mock_post.assert_not_called()
 
 
+class TestMultiWebhookDelivery:
+    def _mock_response(self, status_code: int, text: str = "") -> MagicMock:
+        resp = MagicMock()
+        resp.status_code = status_code
+        resp.text = text
+        return resp
+
+    def test_delivers_to_all_urls(self) -> None:
+        d1 = WebhookDelivery("https://a.example.com/hook", "s")
+        d2 = WebhookDelivery("https://b.example.com/hook", "s")
+        multi = MultiWebhookDelivery([d1, d2])
+        with patch("httpx.post", return_value=self._mock_response(200)) as mock_post:
+            multi.deliver(_SAMPLE_PAYLOAD)
+        assert mock_post.call_count == 2
+        urls = [call[0][0] for call in mock_post.call_args_list]
+        assert "https://a.example.com/hook" in urls
+        assert "https://b.example.com/hook" in urls
+
+    def test_raises_delivery_error_if_any_url_fails(self) -> None:
+        d1 = WebhookDelivery("https://a.example.com/hook", "s")
+        d2 = WebhookDelivery("https://b.example.com/hook", "s")
+        multi = MultiWebhookDelivery([d1, d2])
+        # d1: 200 (ok); d2: 500 twice (both attempts fail)
+        responses = [self._mock_response(200), self._mock_response(500), self._mock_response(500)]
+        with patch("httpx.post", side_effect=responses), patch("time.sleep"), pytest.raises(DeliveryError):
+            multi.deliver(_SAMPLE_PAYLOAD)
+
+    def test_attempts_all_urls_even_if_first_fails(self) -> None:
+        d1 = WebhookDelivery("https://a.example.com/hook", "s")
+        d2 = WebhookDelivery("https://b.example.com/hook", "s")
+        multi = MultiWebhookDelivery([d1, d2])
+        # First URL always fails (both attempts), second always succeeds
+        responses = [self._mock_response(500), self._mock_response(500), self._mock_response(200)]
+        with patch("httpx.post", side_effect=responses), patch("time.sleep"), pytest.raises(DeliveryError) as exc_info:
+            multi.deliver(_SAMPLE_PAYLOAD)
+        # Second URL was still attempted (its 200 consumed from the mock)
+        assert "1 webhook(s) failed" in str(exc_info.value)
+
+
 class TestMakeDelivery:
     def test_returns_dry_run_when_configured(self, base_config: Config) -> None:
         base_config.dry_run = True
@@ -120,12 +160,27 @@ class TestMakeDelivery:
         base_config.output_file = "/tmp/out.json"
         assert isinstance(make_delivery(base_config), FileDelivery)
 
-    def test_returns_webhook_when_url_configured(self, base_config: Config) -> None:
+    def test_returns_multi_webhook_when_destinations_configured(self, base_config: Config) -> None:
         base_config.dry_run = False
         base_config.output_file = ""
-        base_config.webhook_url = "https://example.com/hook"
-        base_config.webhook_secret = "secret"
-        assert isinstance(make_delivery(base_config), WebhookDelivery)
+        base_config.webhook_destinations = [
+            WebhookDestination("https://example.com/hook", "secret")
+        ]
+        assert isinstance(make_delivery(base_config), MultiWebhookDelivery)
+
+    def test_builds_one_delivery_per_destination_with_own_secret(self, base_config: Config) -> None:
+        base_config.dry_run = False
+        base_config.output_file = ""
+        base_config.webhook_destinations = [
+            WebhookDestination("https://a.example.com/hook", "sk_a"),
+            WebhookDestination("https://b.example.com/hook", "sk_b"),
+        ]
+        delivery = make_delivery(base_config)
+        assert isinstance(delivery, MultiWebhookDelivery)
+        assert [(d.url, d.secret) for d in delivery.deliveries] == [
+            ("https://a.example.com/hook", "sk_a"),
+            ("https://b.example.com/hook", "sk_b"),
+        ]
 
     def test_schema_version_present_in_delivered_payload(self, tmp_path: Path, base_config: Config) -> None:
         output = tmp_path / "out.json"

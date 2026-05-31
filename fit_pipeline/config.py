@@ -4,6 +4,7 @@ This is the single point where environment variables are read.
 All other components receive configuration as constructor arguments.
 """
 
+import json
 import logging
 import os
 from dataclasses import dataclass, field
@@ -15,13 +16,25 @@ from fit_pipeline.exceptions import ConfigError
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class WebhookDestination:
+    """A single webhook delivery target with its own authentication secret.
+
+    Attributes:
+        url: Webhook endpoint URL (host and port are part of the URL).
+        secret: Bearer token used for this destination only.
+    """
+
+    url: str
+    secret: str
+
+
 @dataclass
 class Config:
     """Complete pipeline configuration."""
 
     # Delivery
-    webhook_url: str = ""
-    webhook_secret: str = ""
+    webhook_destinations: list[WebhookDestination] = field(default_factory=list)
     server_secret: str = ""
     server_port: int = 8000
     upload_dir: str = ""
@@ -64,6 +77,47 @@ class Config:
     trimp_gender: str = "male"
 
 
+def _webhook_destinations() -> list[WebhookDestination]:
+    """Parse WEBHOOK_DESTINATIONS as a JSON array of {url, secret} objects.
+
+    Returns:
+        List of WebhookDestination, empty if the variable is unset.
+
+    Raises:
+        ConfigError: If the value is not valid JSON, not an array, or any
+            entry is missing a non-empty 'url' or 'secret'.
+    """
+    raw = os.environ.get("WEBHOOK_DESTINATIONS", "").strip()
+    if not raw:
+        return []
+
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ConfigError(f"WEBHOOK_DESTINATIONS must be valid JSON: {exc}") from exc
+
+    if not isinstance(parsed, list):
+        raise ConfigError(
+            "WEBHOOK_DESTINATIONS must be a JSON array of {url, secret} objects"
+        )
+
+    destinations: list[WebhookDestination] = []
+    for index, entry in enumerate(parsed):
+        if not isinstance(entry, dict):
+            raise ConfigError(
+                f"WEBHOOK_DESTINATIONS[{index}] must be an object with 'url' and 'secret'"
+            )
+        url = entry.get("url", "")
+        secret = entry.get("secret", "")
+        if not url or not secret:
+            raise ConfigError(
+                f"WEBHOOK_DESTINATIONS[{index}] requires non-empty 'url' and 'secret'"
+            )
+        destinations.append(WebhookDestination(url=url, secret=secret))
+
+    return destinations
+
+
 def load_config(env_file: str | None = None) -> Config:
     """Load configuration from environment variables and optional .env file.
 
@@ -99,8 +153,7 @@ def load_config(env_file: str | None = None) -> Config:
         return [v.strip() for v in val.split(",") if v.strip()]
 
     config = Config(
-        webhook_url=os.environ.get("WEBHOOK_URL", ""),
-        webhook_secret=os.environ.get("WEBHOOK_SECRET", ""),
+        webhook_destinations=_webhook_destinations(),
         server_secret=os.environ.get("SERVER_SECRET", ""),
         server_port=_int("SERVER_PORT", 8000) or 8000,
         upload_dir=os.environ.get("UPLOAD_DIR", ""),
@@ -135,11 +188,8 @@ def _validate(config: Config) -> None:
     """Raise ConfigError for missing required variables."""
     missing = []
 
-    if not config.dry_run and not config.output_file:
-        if not config.webhook_url:
-            missing.append("WEBHOOK_URL")
-        if not config.webhook_secret:
-            missing.append("WEBHOOK_SECRET")
+    if not config.dry_run and not config.output_file and not config.webhook_destinations:
+        missing.append("WEBHOOK_DESTINATIONS")
 
     if config.trimp_gender not in ("male", "female"):
         raise ConfigError(f"TRIMP_GENDER must be 'male' or 'female', got: {config.trimp_gender!r}")

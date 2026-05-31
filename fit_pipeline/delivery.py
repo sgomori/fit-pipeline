@@ -85,6 +85,44 @@ class WebhookDelivery:
             attempt += 1
 
 
+class MultiWebhookDelivery:
+    """Deliver a payload to multiple webhook URLs.
+
+    All destinations are always attempted; failures are aggregated. Raises
+    DeliveryError after all attempts if any destination failed.
+
+    Args:
+        deliveries: WebhookDelivery instances, one per destination URL.
+    """
+
+    def __init__(self, deliveries: list[WebhookDelivery]) -> None:
+        self.deliveries = deliveries
+
+    def deliver(self, payload: dict[str, Any]) -> None:
+        """POST the payload to every configured webhook URL.
+
+        All URLs are attempted even if earlier ones fail. Raises
+        DeliveryError listing every URL that failed.
+
+        Args:
+            payload: The processed activity payload dict.
+
+        Raises:
+            DeliveryError: If one or more destinations could not be reached.
+        """
+        errors: list[str] = []
+        for delivery in self.deliveries:
+            try:
+                delivery.deliver(payload)
+            except DeliveryError as exc:
+                errors.append(str(exc))
+
+        if errors:
+            raise DeliveryError(
+                f"{len(errors)} webhook(s) failed:\n" + "\n".join(errors)
+            )
+
+
 class FileDelivery:
     """Write the payload as formatted JSON to a file path.
 
@@ -128,7 +166,7 @@ class DryRunDelivery:
         logger.info("Dry run: payload written to stdout")
 
 
-def make_delivery(config: Config) -> WebhookDelivery | FileDelivery | DryRunDelivery:
+def make_delivery(config: Config) -> MultiWebhookDelivery | FileDelivery | DryRunDelivery:
     """Construct the appropriate delivery object from config.
 
     Args:
@@ -141,4 +179,6 @@ def make_delivery(config: Config) -> WebhookDelivery | FileDelivery | DryRunDeli
         return DryRunDelivery()
     if config.output_file:
         return FileDelivery(config.output_file)
-    return WebhookDelivery(config.webhook_url, config.webhook_secret)
+    return MultiWebhookDelivery(
+        [WebhookDelivery(dest.url, dest.secret) for dest in config.webhook_destinations]
+    )
