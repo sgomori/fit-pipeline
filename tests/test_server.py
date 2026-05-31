@@ -207,3 +207,120 @@ class TestHealthCheck:
         response = client.get("/health")
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# Upload endpoint
+# ---------------------------------------------------------------------------
+
+class TestUploadEndpoint:
+    @pytest.fixture
+    def upload_config(self, tmp_path: Path, base_config: Config) -> Config:
+        base_config.server_secret = _SERVER_SECRET
+        base_config.dry_run = True
+        base_config.upload_dir = str(tmp_path / "uploads")
+        return base_config
+
+    @pytest.fixture
+    def upload_client(self, upload_config: Config) -> TestClient:
+        application = create_app(upload_config, [])
+        return TestClient(application, raise_server_exceptions=False)
+
+    def test_missing_auth_returns_401(self, upload_client: TestClient) -> None:
+        response = upload_client.post("/upload", files={"file": ("run.fit", b"data", "application/octet-stream")})
+        assert response.status_code == 401
+
+    def test_wrong_token_returns_401(self, upload_client: TestClient) -> None:
+        response = upload_client.post(
+            "/upload",
+            files={"file": ("run.fit", b"data", "application/octet-stream")},
+            headers={"Authorization": "Bearer wrong"},
+        )
+        assert response.status_code == 401
+
+    def test_non_fit_file_returns_422(self, upload_client: TestClient) -> None:
+        response = upload_client.post(
+            "/upload",
+            files={"file": ("readme.txt", b"hello", "text/plain")},
+            headers=_AUTH_HEADERS,
+        )
+        assert response.status_code == 422
+
+    def test_unconfigured_upload_dir_returns_503(self, base_config: Config) -> None:
+        base_config.server_secret = _SERVER_SECRET
+        base_config.dry_run = True
+        base_config.upload_dir = ""
+        app_no_dir = create_app(base_config, [])
+        client_no_dir = TestClient(app_no_dir, raise_server_exceptions=False)
+        response = client_no_dir.post(
+            "/upload",
+            files={"file": ("run.fit", b"data", "application/octet-stream")},
+            headers=_AUTH_HEADERS,
+        )
+        assert response.status_code == 503
+
+    def test_valid_fit_returns_200(self, upload_client: TestClient, tmp_path: Path) -> None:
+        if not SAMPLE_FIT.exists():
+            pytest.skip("Sample FIT fixture not yet available")
+        fit_bytes = SAMPLE_FIT.read_bytes()
+        response = upload_client.post(
+            "/upload",
+            files={"file": ("run.fit", fit_bytes, "application/octet-stream")},
+            headers=_AUTH_HEADERS,
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "ok"
+        assert body["processed"] == 1
+        assert body["failed"] == 0
+        assert len(body["files"]) == 1
+        assert body["files"][0]["status"] == "ok"
+
+    def test_file_moved_to_completed_on_success(self, upload_config: Config) -> None:
+        if not SAMPLE_FIT.exists():
+            pytest.skip("Sample FIT fixture not yet available")
+        application = create_app(upload_config, [])
+        client = TestClient(application, raise_server_exceptions=False)
+        fit_bytes = SAMPLE_FIT.read_bytes()
+        client.post(
+            "/upload",
+            files={"file": ("run.fit", fit_bytes, "application/octet-stream")},
+            headers=_AUTH_HEADERS,
+        )
+        completed = Path(upload_config.upload_dir) / "completed" / "run.fit"
+        assert completed.exists()
+
+    def test_process_error_returns_500(self, upload_client: TestClient) -> None:
+        if not SAMPLE_FIT.exists():
+            pytest.skip("Sample FIT fixture not yet available")
+        fit_bytes = SAMPLE_FIT.read_bytes()
+        with patch(
+            "fit_pipeline.server.process_file",
+            side_effect=ParseError("synthetic parse error"),
+        ):
+            response = upload_client.post(
+                "/upload",
+                files={"file": ("run.fit", fit_bytes, "application/octet-stream")},
+                headers=_AUTH_HEADERS,
+            )
+        assert response.status_code == 500
+        body = response.json()
+        assert body["status"] == "error"
+        assert body["failed"] == 1
+
+    def test_path_traversal_filename_is_sanitized(self, upload_config: Config) -> None:
+        if not SAMPLE_FIT.exists():
+            pytest.skip("Sample FIT fixture not yet available")
+        application = create_app(upload_config, [])
+        client = TestClient(application, raise_server_exceptions=False)
+        fit_bytes = SAMPLE_FIT.read_bytes()
+        response = client.post(
+            "/upload",
+            files={"file": ("../../evil.fit", fit_bytes, "application/octet-stream")},
+            headers=_AUTH_HEADERS,
+        )
+        assert response.status_code == 200
+        upload_dir = Path(upload_config.upload_dir)
+        # File landed inside upload_dir/completed as a basename, not outside it
+        assert (upload_dir / "completed" / "evil.fit").exists()
+        assert not (upload_dir.parent / "evil.fit").exists()

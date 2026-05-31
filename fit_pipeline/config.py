@@ -24,6 +24,7 @@ class Config:
     webhook_secret: str = ""
     server_secret: str = ""
     server_port: int = 8000
+    upload_dir: str = ""
 
     # Field filtering
     exclude_gps: bool = True
@@ -102,6 +103,7 @@ def load_config(env_file: str | None = None) -> Config:
         webhook_secret=os.environ.get("WEBHOOK_SECRET", ""),
         server_secret=os.environ.get("SERVER_SECRET", ""),
         server_port=_int("SERVER_PORT", 8000) or 8000,
+        upload_dir=os.environ.get("UPLOAD_DIR", ""),
         exclude_gps=_bool("EXCLUDE_GPS", True),
         exclude_device_info=_bool("EXCLUDE_DEVICE_INFO", True),
         exclude_fields=_str_list("EXCLUDE_FIELDS"),

@@ -8,12 +8,12 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
-from fit_pipeline.batch import process_directory
+from fit_pipeline.batch import _COMPLETED_DIRNAME, _move_to_completed, process_directory
 from fit_pipeline.config import Config
 from fit_pipeline.core import build_processor_chain, process_file
 from fit_pipeline.exceptions import (
@@ -142,6 +142,82 @@ async def process_endpoint(
             "processed": len(file_results),
             "failed": 0,
             "files": file_results,
+        }
+    )
+
+
+@app.post(
+    "/upload",
+    response_model=ProcessResponse,
+    dependencies=[Depends(_authenticate)],
+    status_code=200,
+)
+async def upload_endpoint(
+    request: Request,
+    file: UploadFile = File(...),  # noqa: B008
+) -> JSONResponse:
+    """Accept a binary FIT file, save it, and run the pipeline.
+
+    The route-level auth dependency runs before this handler, so no write to
+    UPLOAD_DIR and no pipeline work happens for an unauthenticated request.
+    Note: FastAPI buffers the multipart request body before dependencies
+    resolve, so an unauthenticated request's bytes may be spooled to a
+    framework temp file before the 401 — auth gates our own filesystem
+    writes, not Starlette's request buffering.
+
+    The file is saved to the configured UPLOAD_DIR, processed through the
+    pipeline, then moved to UPLOAD_DIR/completed/ on success.
+
+    Returns a structured JSON response with the processing result.
+    """
+    config = _get_config(request)
+    processors = _get_processors(request)
+
+    if not config.upload_dir:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"detail": "UPLOAD_DIR is not configured"},
+        )
+
+    # Strip any directory components from the client-supplied filename to
+    # prevent path traversal outside UPLOAD_DIR (e.g. "../../etc/x.fit").
+    filename = Path(file.filename or "upload.fit").name
+    if not filename.lower().endswith(".fit"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Not a .fit file: {filename}",
+        )
+
+    upload_path = Path(config.upload_dir)
+    upload_path.mkdir(parents=True, exist_ok=True)
+    dest = upload_path / filename
+
+    contents = await file.read()
+    dest.write_bytes(contents)
+    logger.debug("Uploaded file saved to %s (%d bytes)", dest, len(contents))
+
+    try:
+        payload = process_file(dest, processors, config)
+    except (ParseError, MiddlewareError, DeliveryError) as exc:
+        logger.error("Upload processing failed: %s", exc)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "status": "error",
+                "processed": 0,
+                "failed": 1,
+                "files": [{"file": filename, "status": "error", "error": str(exc)}],
+            },
+        )
+
+    _move_to_completed(dest, upload_path / _COMPLETED_DIRNAME)
+
+    return JSONResponse(
+        content={
+            "status": "ok",
+            "processed": 1,
+            "failed": 0,
+            "files": [{"file": payload["file"], "status": "ok"}],
         }
     )
 
