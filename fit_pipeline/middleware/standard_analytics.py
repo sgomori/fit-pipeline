@@ -15,9 +15,10 @@ from fit_pipeline.processor import Processor
 
 logger = logging.getLogger(__name__)
 
-# LTHR-based zone upper boundaries (as % of LTHR).
-# Zone 5 has no upper boundary.
-_LTHR_ZONE_PCTS = [0.85, 0.92, 0.99, 1.05]
+# LTHR-based zone upper boundaries (as % of LTHR), following Joe Friel's
+# published running zones compressed to 5 buckets:
+#   Z1 <85% | Z2 85-89% | Z3 90-99% | Z4 100-106% | Z5 >106% (unbounded)
+_LTHR_ZONE_PCTS = [0.85, 0.89, 0.99, 1.06]
 
 # Banister TRIMP exponential coefficients by gender
 _TRIMP_COEFFICIENTS = {
@@ -331,8 +332,9 @@ class StandardAnalyticsProcessor(Processor):
     ) -> dict[str, float] | None:
         """Compute time-in-zone percentages using LTHR-based boundaries.
 
-        Zone boundaries default to LTHR percentages (Friel 5-zone model).
-        Override with HR_ZONE_1–HR_ZONE_5 config (BPM upper boundaries).
+        Zone boundaries default to LTHR percentages (Friel running zones,
+        compressed to 5 buckets). Override with HR_ZONE_1–HR_ZONE_5 config
+        (BPM upper boundaries).
 
         Args:
             hr_stream: Heart rate stream in BPM.

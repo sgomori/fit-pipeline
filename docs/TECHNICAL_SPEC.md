@@ -149,7 +149,7 @@ Cardiovascular drift using the speed/HR ratio (TrainingPeaks Pa:HR convention). 
 Coefficient of variation of pace: `std(pace_s_per_km) / mean(pace_s_per_km)` (stopped samples excluded). Lower = more consistent pacing. Note: this is pace CV, not the Coggan Variability Index (Normalized Power / Average Power). Requires pace stream.
 
 **hr_zone_distribution**
-Time-in-zone percentages using the Friel LTHR-based 5-zone model. Default boundaries: Z1 <85%, Z2 85–92%, Z3 93–99%, Z4 100–105%, Z5 >105% of LTHR. Override with fixed BPM via `HR_ZONE_1` through `HR_ZONE_5`. Null if LTHR unavailable.
+Time-in-zone percentages using LTHR-based zones (Joe Friel's running zones, compressed to 5 buckets). Default boundaries: Z1 <85%, Z2 85–89%, Z3 90–99%, Z4 100–106%, Z5 >106% of LTHR. Override with fixed BPM via `HR_ZONE_1` through `HR_ZONE_5`. Null if LTHR unavailable.
 
 **pace_zone_distribution**
 Time in four zones (easy, moderate, threshold, hard) as percentages. Boundaries from `PACE_ZONE_EASY`, `PACE_ZONE_MODERATE`, `PACE_ZONE_THRESHOLD` (s/km). Null if none configured.
@@ -456,7 +456,7 @@ Unresolved — surface before deciding silently:
 **Resolved** (do not reopen):
 - Processor registration: `processors.py` Python config module
 - LTHR source: per-activity FIT `zones_target` → `THRESHOLD_HR` env var → null + WARNING
-- HR zone model: Friel LTHR-based 5-zone (not max-HR-based, not Garmin's boundaries)
+- HR zone model: LTHR-based, Friel running boundaries compressed to 5 buckets (not max-HR-based, not Garmin's boundaries)
 - Aerobic decoupling: speed/HR ratio, not pace/HR
 - TRIMP: Banister formula with gender-selectable coefficients
 - GAP: Strava-style polynomial approximation
