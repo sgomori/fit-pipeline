@@ -39,3 +39,6 @@ completed/
 
 # Claude Code local overrides
 .claude/settings.local.json
+
+# Claude subagent scratch memory (auto-generated, session-specific)
+.claude/agent-memory/
