@@ -355,11 +355,11 @@ class TestGradeAdjustedPace:
     def test_flat_course_gap_equals_actual_pace(self, analytics_config: Config) -> None:
         # Flat course (constant altitude) → GAP should equal actual pace
         n = 100
-        pace = [300.0] * n
+        speed = [1000 / 300.0] * n  # 300 s/km in m/s
         altitude = [50.0] * n
         distance = [i * 5.0 for i in range(n)]  # 5m per record
         proc = _make_processor(analytics_config)
-        result = proc._grade_adjusted_pace(pace, altitude, distance, 150.0)
+        result = proc._grade_adjusted_pace(speed, altitude, distance, 150.0)
         gap = result["avg_grade_adjusted_pace_per_km"]
         assert gap is not None
         assert abs(gap - 300.0) < 1.0
@@ -367,23 +367,36 @@ class TestGradeAdjustedPace:
     def test_uphill_gap_is_faster_than_actual_pace(self, analytics_config: Config) -> None:
         # Going uphill at 300 s/km → effort is higher → GAP (flat equivalent) is faster
         n = 50
-        pace = [300.0] * n
+        speed = [1000 / 300.0] * n  # 300 s/km in m/s
         altitude = [100.0 + i * 0.5 for i in range(n)]  # steady climb
         distance = [i * 10.0 for i in range(n)]  # 10m per record → 5% grade
         proc = _make_processor(analytics_config)
-        result = proc._grade_adjusted_pace(pace, altitude, distance, 150.0)
+        result = proc._grade_adjusted_pace(speed, altitude, distance, 150.0)
         gap = result["avg_grade_adjusted_pace_per_km"]
         assert gap is not None
         assert gap < 300.0  # GAP < actual pace → faster equivalent
 
     def test_gap_ef_present_when_hr_available(self, analytics_config: Config) -> None:
         n = 50
-        pace = [300.0] * n
+        speed = [1000 / 300.0] * n
         altitude = [50.0] * n
         distance = [i * 5.0 for i in range(n)]
         proc = _make_processor(analytics_config)
-        result = proc._grade_adjusted_pace(pace, altitude, distance, 150.0)
+        result = proc._grade_adjusted_pace(speed, altitude, distance, 150.0)
         assert result["grade_adjusted_efficiency_factor"] is not None
+
+    def test_stopped_samples_excluded_from_pace_stats(self, analytics_config: Config) -> None:
+        # Speed stream with several stopped (0 m/s) samples among moving ones.
+        streams = {"enhanced_speed": [3.0, 3.0, 0.0, 0.0, 3.0, 3.0]}
+        proc = _make_processor(analytics_config)
+        pace = proc._get_pace_stream(streams)
+        speed = proc._get_speed_stream(streams)
+        # Stopped samples become None (not 0.0 / "infinitely fast")
+        assert pace == [pytest.approx(1000 / 3.0, abs=0.01), pytest.approx(1000 / 3.0, abs=0.01),
+                        None, None, pytest.approx(1000 / 3.0, abs=0.01), pytest.approx(1000 / 3.0, abs=0.01)]
+        assert speed.count(None) == 2
+        # Mean speed reflects only moving samples (3.0 m/s), not dragged toward 0
+        assert proc._safe_mean(speed) == pytest.approx(3.0)
 
 
 # ---------------------------------------------------------------------------

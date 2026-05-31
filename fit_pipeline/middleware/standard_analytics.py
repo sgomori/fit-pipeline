@@ -30,6 +30,11 @@ _GAP_UPHILL_K = 0.033
 _GAP_DOWNHILL_K = 0.018
 _GAP_DOWNHILL_MAX_GRADE = -15.0  # cap downhill grade for adjustment
 
+# Speed at or below this (m/s, ≈1.8 km/h) is treated as stopped/standing and
+# excluded from pace- and speed-based aggregates. A stopped sample is "infinite
+# pace", not zero pace, so it must not be folded into means as a data point.
+_MIN_MOVING_SPEED_M_S = 0.5
+
 
 class StandardAnalyticsProcessor(Processor):
     """Compute standard training analytics from parsed FIT activity data.
@@ -76,13 +81,14 @@ class StandardAnalyticsProcessor(Processor):
         lthr = self._resolve_lthr(activity, zones_target)
 
         hr_stream = streams.get("heart_rate") or []
+        speed_stream = self._get_speed_stream(streams)  # m/s, None when stopped
         pace_stream = self._get_pace_stream(streams)
         altitude_stream = streams.get("enhanced_altitude") or streams.get("altitude") or []
         distance_stream = streams.get("distance") or []
 
         avg_hr = self._safe_mean(hr_stream)
-        avg_pace = self._safe_mean(pace_stream)  # s/km
-        avg_speed_m_per_min = _pace_to_speed(avg_pace)
+        avg_speed_m_s = self._safe_mean(speed_stream)  # arithmetic mean of speed
+        avg_speed_m_per_min = avg_speed_m_s * 60 if avg_speed_m_s is not None else None
 
         duration_s = activity.get("moving_time_seconds") or activity.get("duration_seconds")
 
@@ -106,7 +112,7 @@ class StandardAnalyticsProcessor(Processor):
         metrics["trimp"] = trimp_result
 
         gap_metrics = self._grade_adjusted_pace(
-            pace_stream, altitude_stream, distance_stream, avg_hr
+            speed_stream, altitude_stream, distance_stream, avg_hr
         )
         metrics.update(gap_metrics)
 
@@ -157,7 +163,7 @@ class StandardAnalyticsProcessor(Processor):
     # ------------------------------------------------------------------
 
     def _aerobic_decoupling(
-        self, pace_stream: list[float], hr_stream: list[float]
+        self, pace_stream: list[float | None], hr_stream: list[float]
     ) -> float | None:
         """Compute aerobic decoupling as Pa:HR drift between activity halves.
 
@@ -202,7 +208,7 @@ class StandardAnalyticsProcessor(Processor):
         return round(decoupling, 2)
 
     def _efficiency_ratio(
-        self, pace_slice: list[float], hr_slice: list[float]
+        self, pace_slice: list[float | None], hr_slice: list[float]
     ) -> float | None:
         """Compute avg_speed_m_per_min / avg_hr for a sub-sequence.
 
@@ -292,7 +298,7 @@ class StandardAnalyticsProcessor(Processor):
         logger.debug("hrTSS: IF=%.3f duration=%.0fs → %.1f", intensity_factor, duration_s, tss)
         return round(tss, 1)
 
-    def _variability_index(self, pace_stream: list[float]) -> float | None:
+    def _variability_index(self, pace_stream: list[float | None]) -> float | None:
         """Compute Variability Index = std(pace) / mean(pace).
 
         Higher VI indicates more variable effort (trail, intervals).
@@ -304,13 +310,14 @@ class StandardAnalyticsProcessor(Processor):
         Returns:
             VI (unitless), or None.
         """
-        if len(pace_stream) < 2:
+        clean = [p for p in pace_stream if p is not None]
+        if len(clean) < 2:
             return None
-        mean_pace = self._safe_mean(pace_stream)
+        mean_pace = self._safe_mean(clean)
         if mean_pace is None or mean_pace == 0:
             return None
         try:
-            std_pace = statistics.stdev(pace_stream)
+            std_pace = statistics.stdev(clean)
         except statistics.StatisticsError:
             return None
         vi = std_pace / mean_pace
@@ -389,7 +396,7 @@ class StandardAnalyticsProcessor(Processor):
         return [lthr * pct for pct in _LTHR_ZONE_PCTS]
 
     def _pace_zone_distribution(
-        self, pace_stream: list[float]
+        self, pace_stream: list[float | None]
     ) -> dict[str, float] | None:
         """Compute time-in-pace-zone percentages.
 
@@ -496,22 +503,76 @@ class StandardAnalyticsProcessor(Processor):
         )
         return round(trimp, 1)
 
+    @staticmethod
+    def _grade_adjusted_speed_series(
+        speed_stream: list[float | None],
+        altitude_stream: list[float],
+        distance_stream: list[float],
+    ) -> list[float]:
+        """Return per-record grade-adjusted speed (m/s) for moving samples.
+
+        Applies a Strava-style adjustment to each record's flat speed:
+            uphill:   factor = 1 + 0.033 × grade_pct
+            downhill: factor = 1 - 0.018 × |grade_pct| (grade capped at -15%)
+        grade_pct = (alt_diff_m / dist_diff_m) × 100 per segment. The
+        equivalent-flat speed is ``speed × factor`` (faster on flat than uphill).
+        Stopped samples (speed None) and segments without a valid distance delta
+        are skipped.
+
+        Args:
+            speed_stream: Speed in m/s with None for stopped samples.
+            altitude_stream: Altitude in metres.
+            distance_stream: Cumulative distance in metres.
+
+        Returns:
+            List of grade-adjusted speeds in m/s (may be shorter than input).
+        """
+        n = min(len(speed_stream), len(altitude_stream), len(distance_stream))
+        gap_speeds: list[float] = []
+
+        for i in range(n):
+            speed = speed_stream[i]
+            if speed is None:
+                continue
+
+            if i == 0:
+                gap_speeds.append(speed)
+                continue
+
+            alt_diff = (altitude_stream[i] or 0) - (altitude_stream[i - 1] or 0)
+            dist_diff = (distance_stream[i] or 0) - (distance_stream[i - 1] or 0)
+
+            if dist_diff <= 0:
+                gap_speeds.append(speed)
+                continue
+
+            grade_pct = (alt_diff / dist_diff) * 100
+
+            if grade_pct >= 0:
+                factor = 1 + _GAP_UPHILL_K * grade_pct
+            else:
+                capped_grade = max(grade_pct, _GAP_DOWNHILL_MAX_GRADE)
+                factor = 1 - _GAP_DOWNHILL_K * abs(capped_grade)
+
+            factor = max(0.5, factor)  # sanity floor (uphill guard)
+            gap_speeds.append(speed * factor)
+
+        return gap_speeds
+
     def _grade_adjusted_pace(
         self,
-        pace_stream: list[float],
+        speed_stream: list[float | None],
         altitude_stream: list[float],
         distance_stream: list[float],
         avg_hr: float | None,
     ) -> dict[str, Any]:
-        """Compute grade-adjusted pace metrics.
+        """Compute grade-adjusted pace metrics from the speed stream.
 
-        Uses a Strava-style polynomial adjustment:
-            uphill:   adjustment = 1 + 0.033 × grade_pct
-            downhill: adjustment = 1 - 0.018 × |grade_pct| (capped at -15%)
-        grade_pct = (alt_diff_m / dist_diff_m) × 100 per segment
+        Averages grade-adjusted *speed* arithmetically (the time-weighted mean
+        the GAP/EF literature intends), then reports the equivalent pace.
 
         Args:
-            pace_stream: Pace in s/km.
+            speed_stream: Speed in m/s with None for stopped samples.
             altitude_stream: Altitude in metres.
             distance_stream: Cumulative distance in metres.
             avg_hr: Average heart rate in BPM (for GAP efficiency factor).
@@ -525,53 +586,29 @@ class StandardAnalyticsProcessor(Processor):
             "grade_adjusted_efficiency_factor": None,
         }
 
-        n = min(len(pace_stream), len(altitude_stream), len(distance_stream))
-        if n < 2:
-            logger.debug("Insufficient data for GAP (need pace + altitude + distance streams)")
+        if min(len(speed_stream), len(altitude_stream), len(distance_stream)) < 2:
+            logger.debug("Insufficient data for GAP (need speed + altitude + distance streams)")
             return null_result
 
-        gap_values: list[float] = []
-
-        for i in range(n):
-            pace = pace_stream[i]
-            if pace is None or pace <= 0:
-                continue
-
-            if i == 0:
-                gap_values.append(pace)
-                continue
-
-            alt_diff = (altitude_stream[i] or 0) - (altitude_stream[i - 1] or 0)
-            dist_diff = (distance_stream[i] or 0) - (distance_stream[i - 1] or 0)
-
-            if dist_diff <= 0:
-                gap_values.append(pace)
-                continue
-
-            grade_pct = (alt_diff / dist_diff) * 100
-
-            if grade_pct >= 0:
-                adjustment = 1 + _GAP_UPHILL_K * grade_pct
-            else:
-                capped_grade = max(grade_pct, _GAP_DOWNHILL_MAX_GRADE)
-                adjustment = 1 - _GAP_DOWNHILL_K * abs(capped_grade)
-
-            adjustment = max(0.5, adjustment)  # sanity floor
-            gap_values.append(pace / adjustment)
-
-        if not gap_values:
+        gap_speeds = self._grade_adjusted_speed_series(
+            speed_stream, altitude_stream, distance_stream
+        )
+        if not gap_speeds:
             return null_result
 
-        avg_gap_pace = statistics.mean(gap_values)  # s/km
-        avg_gap_speed = _pace_to_speed(avg_gap_pace)  # m/min
+        avg_gap_speed_m_s = statistics.mean(gap_speeds)
+        if avg_gap_speed_m_s <= 0:
+            return null_result
+
+        avg_gap_pace = 1000 / avg_gap_speed_m_s  # s/km
 
         gap_ef: float | None = None
-        if avg_gap_speed is not None and avg_hr and avg_hr > 0:
-            gap_ef = round(avg_gap_speed / avg_hr, 4)
+        if avg_hr and avg_hr > 0:
+            gap_ef = round(avg_gap_speed_m_s * 60 / avg_hr, 4)
 
         logger.debug(
-            "GAP: avg_pace=%.1f s/km avg_gap_pace=%.1f s/km gap_ef=%s",
-            self._safe_mean(pace_stream) or 0,
+            "GAP: avg_gap_speed=%.3f m/s avg_gap_pace=%.1f s/km gap_ef=%s",
+            avg_gap_speed_m_s,
             avg_gap_pace,
             gap_ef,
         )
@@ -594,15 +631,42 @@ class StandardAnalyticsProcessor(Processor):
         return float(statistics.mean(clean))
 
     @staticmethod
-    def _get_pace_stream(streams: dict[str, Any]) -> list[float]:
-        """Return pace stream in s/km, deriving from speed if needed."""
-        pace = streams.get("enhanced_speed") or streams.get("speed") or []
-        # Garmin speed is in m/s; convert to s/km
-        if pace:
-            return [
-                round(1000 / v, 2) if v and v > 0 else 0.0 for v in pace
-            ]
-        return []
+    def _get_speed_stream(streams: dict[str, Any]) -> list[float | None]:
+        """Return the speed stream in m/s, with None for stopped/missing samples.
+
+        Samples at or below ``_MIN_MOVING_SPEED_M_S`` are treated as stopped and
+        returned as None so they are skipped by pace/speed aggregates rather
+        than counted as real (very fast) data points.
+
+        Args:
+            streams: Parsed stream dict (prefers ``enhanced_speed``).
+
+        Returns:
+            List of m/s floats with None for stopped/missing entries.
+        """
+        speed = streams.get("enhanced_speed") or streams.get("speed") or []
+        return [
+            float(v) if v is not None and v > _MIN_MOVING_SPEED_M_S else None
+            for v in speed
+        ]
+
+    @classmethod
+    def _get_pace_stream(cls, streams: dict[str, Any]) -> list[float | None]:
+        """Return pace stream in s/km, deriving from speed.
+
+        Stopped/missing samples are None (not 0.0), since a stopped sample is
+        "infinite pace" and must not be averaged in as a real value.
+
+        Args:
+            streams: Parsed stream dict.
+
+        Returns:
+            List of s/km floats with None for stopped/missing entries.
+        """
+        return [
+            round(1000 / v, 2) if v is not None else None
+            for v in cls._get_speed_stream(streams)
+        ]
 
 
 # ------------------------------------------------------------------

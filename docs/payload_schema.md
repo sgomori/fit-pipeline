@@ -151,7 +151,7 @@ Device info fields are excluded by default (`EXCLUDE_DEVICE_INFO=true`).
   },
   "computed_metrics": {
     "aerobic_decoupling_pct": 7.88,
-    "efficiency_factor": 1.2818,
+    "efficiency_factor": 1.288,
     "cardiac_drift_bpm": 21,
     "tss_score": 19.0,
     "variability_index": 0.0917,
@@ -169,8 +169,8 @@ Device info fields are excluded by default (`EXCLUDE_DEVICE_INFO=true`).
       "hard": 0.3
     },
     "trimp": 22.7,
-    "avg_grade_adjusted_pace_per_km": 359.7,
-    "grade_adjusted_efficiency_factor": 1.283
+    "avg_grade_adjusted_pace_per_km": 351.1,
+    "grade_adjusted_efficiency_factor": 1.3147
   },
   "laps": [
     {"started_at": "2024-01-15T07:00:00+00:00", "distance_meters": 1000.0, "duration_seconds": 360.0, "average_heart_rate": 119, "average_cadence": 86, "average_pace_per_km": 360.0},

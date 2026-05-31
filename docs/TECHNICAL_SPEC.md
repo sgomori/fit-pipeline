@@ -137,7 +137,7 @@ All metrics are written to `data["computed_metrics"]`. Missing required streams 
 Cardiovascular drift using the speed/HR ratio (TrainingPeaks Pa:HR convention). Records are split at the elapsed-time midpoint. `eff = avg_speed_m_per_min / avg_hr` per half; decoupling = `(eff_h1 - eff_h2) / eff_h1 × 100`. Positive = HR drifted up relative to speed. Under 5% indicates aerobic efficiency. Requires pace + heart_rate streams.
 
 **efficiency_factor**
-`avg_speed_m_per_min / avg_heart_rate`. No grade adjustment. Expected range ~1.2–1.8 for trained runners. Requires pace + heart_rate streams.
+`avg_speed_m_per_min / avg_heart_rate`, where average speed is the arithmetic (time-weighted) mean of the per-record speed samples — not the harmonic mean of pace. No grade adjustment. Stopped/near-stopped samples (≤ 0.5 m/s) are excluded. Expected range ~1.2–1.8 for trained runners. Requires speed + heart_rate streams.
 
 **cardiac_drift_bpm**
 `Q4_avg_hr - Q1_avg_hr` (first and last 25% of heart_rate records). Requires ≥ 8 records. Note: pace is not controlled; elevation and pacing changes affect the value.
@@ -158,7 +158,7 @@ Time in four zones (easy, moderate, threshold, hard) as percentages. Boundaries 
 `hrr = (avg_hr - resting_hr) / (max_hr - resting_hr)`; `TRIMP = duration_min × hrr × c1 × e^(c2 × hrr)`. Male coefficients (default): c1=0.64, c2=1.92. Female (`TRIMP_GENDER=female`): c1=0.86, c2=1.67. `max_hr` resolution: `MAX_HR` config → session `max_heart_rate`. Null if `RESTING_HR` not configured.
 
 **avg_grade_adjusted_pace_per_km / grade_adjusted_efficiency_factor**
-Grade-Adjusted Pace normalizes pace for elevation. Per-record: `grade_pct = alt_diff_m / dist_diff_m × 100`; uphill factor `1 + 0.033 × grade_pct`, downhill `1 - 0.018 × |grade_pct|` capped at −15%; `gap = actual_pace / factor`. Summary: mean GAP and `avg_speed_from_gap / avg_hr`. Polynomial is a Strava-style approximation. Requires altitude + pace streams.
+Grade-Adjusted Pace normalizes pace for elevation. Per-record: `grade_pct = alt_diff_m / dist_diff_m × 100`; uphill factor `1 + 0.033 × grade_pct`, downhill `1 - 0.018 × |grade_pct|` capped at −15%; the grade-adjusted (flat-equivalent) speed is `speed × factor`. The summary averages those grade-adjusted *speeds* arithmetically (stopped samples excluded), reports the equivalent pace, and `grade_adjusted_efficiency_factor = avg_gap_speed_m_per_min / avg_hr`. Polynomial is a Strava-style approximation. Requires speed + altitude + distance streams.
 
 ### FieldFilterProcessor
 

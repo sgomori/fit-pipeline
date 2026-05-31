@@ -19,7 +19,7 @@
   },
   "computed_metrics": {
     "aerobic_decoupling_pct": 7.88,
-    "efficiency_factor": 1.2818,
+    "efficiency_factor": 1.288,
     "cardiac_drift_bpm": 21,
     "tss_score": 19.0,
     "variability_index": 0.0917,
@@ -37,8 +37,8 @@
       "hard": 0.3
     },
     "trimp": 22.7,
-    "avg_grade_adjusted_pace_per_km": 359.7,
-    "grade_adjusted_efficiency_factor": 1.283
+    "avg_grade_adjusted_pace_per_km": 351.1,
+    "grade_adjusted_efficiency_factor": 1.3147
   },
   "laps_count": 4,
   "zones_target": {
