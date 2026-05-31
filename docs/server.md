@@ -10,13 +10,12 @@ SERVER_SECRET=your_secret_here python server.py
 
 # With full config
 SERVER_SECRET=your_secret \
-WEBHOOK_URL=https://your-app.example.com/ingest \
-WEBHOOK_SECRET=your_webhook_secret \
+WEBHOOK_DESTINATIONS='[{"url":"https://your-app.example.com/ingest","secret":"your_webhook_secret"}]' \
 THRESHOLD_HR=162 RESTING_HR=48 MAX_HR=185 \
 python server.py
 ```
 
-The server listens on `0.0.0.0:8000` by default. Override with `HOST` and `PORT` env vars.
+The server listens on `0.0.0.0:8000` by default. Override the port with the `SERVER_PORT` env var.
 
 `SERVER_SECRET` is required. The server will not start without it.
 
@@ -50,32 +49,29 @@ Trigger pipeline processing for a single file or a directory.
 
 **Successful response (200):**
 
+The response contains a `files` array with one entry per processed file. Each entry has `file` and `status`; the full payload is delivered to the configured destinations, not echoed back.
+
 ```json
 {
   "status": "ok",
   "processed": 1,
   "failed": 0,
-  "results": [
-    {
-      "file": "sample_run.fit",
-      "status": "ok",
-      "payload": { ... }
-    }
+  "files": [
+    { "file": "sample_run.fit", "status": "ok" }
   ]
 }
 ```
 
-**Partial failure response (200):**
+**Processing failure (500):**
 
-When processing a directory, the server returns 200 even if some files fail. Check `failed` and `results[].status` to identify failures.
+If a file fails to parse, process, or deliver, the server returns 500 with the same shape; the failed entry carries an `error` message.
 
 ```json
 {
-  "status": "partial",
-  "processed": 2,
+  "status": "error",
+  "processed": 0,
   "failed": 1,
-  "results": [
-    { "file": "run1.fit", "status": "ok", "payload": { ... } },
+  "files": [
     { "file": "bad.fit", "status": "error", "error": "FIT decode errors: ..." }
   ]
 }
@@ -86,16 +82,39 @@ When processing a directory, the server returns 200 even if some files fail. Che
 | Status | Condition |
 |---|---|
 | 401 | Missing or invalid Authorization header |
-| 422 | Request body missing required `path` field |
-| 500 | Unhandled server error |
+| 422 | Body missing `path`, path not found, or not a `.fit` file / empty directory |
+| 500 | Processing failed (structured JSON, never a raw traceback) |
 
-All error responses are JSON:
+Validation errors use a `detail` message:
 
 ```json
 {
   "detail": "human-readable error message"
 }
 ```
+
+### POST /upload
+
+Upload a binary `.fit` file directly instead of referencing a server-side path. Useful when the caller has the file but no filesystem access to the pipeline host.
+
+**Request:** `multipart/form-data` with a `file` field containing the `.fit` file.
+
+```bash
+curl -X POST http://localhost:8000/upload \
+  -H "Authorization: Bearer your_secret_here" \
+  -F "file=@morning-run.fit"
+```
+
+The file is saved to `UPLOAD_DIR`, processed through the pipeline, and moved to `UPLOAD_DIR/completed/` on success. The response mirrors `/process` (a single-entry `files` array). The uploaded filename is reduced to its basename, so it cannot write outside `UPLOAD_DIR`.
+
+**Error responses:**
+
+| Status | Condition |
+|---|---|
+| 401 | Missing or invalid Authorization header |
+| 422 | Upload is not a `.fit` file |
+| 503 | `UPLOAD_DIR` is not configured |
+| 500 | Processing failed |
 
 ### GET /health
 
@@ -114,8 +133,8 @@ Server-specific variables:
 | Variable | Default | Description |
 |---|---|---|
 | `SERVER_SECRET` | (required) | Bearer token for API authentication |
-| `HOST` | `0.0.0.0` | Bind address |
-| `PORT` | `8000` | Listen port |
+| `SERVER_PORT` | `8000` | Listen port |
+| `UPLOAD_DIR` | (empty) | Directory for `POST /upload` files; required to use that endpoint |
 
 ## Testing
 

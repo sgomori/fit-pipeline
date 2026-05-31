@@ -172,17 +172,23 @@ A simple demonstration processor included in the framework. Takes a list of fiel
 
 ### Webhook delivery
 
-Primary output target. Delivers the final processed payload as a JSON POST request.
+Primary output target. Delivers the final processed payload as a JSON POST request to one or more destinations.
+
+Destinations are configured via `WEBHOOK_DESTINATIONS`, a JSON array of `{url, secret}` objects. Each destination authenticates with its own bearer token (host and port are part of the URL):
 
 ```
-POST <WEBHOOK_URL>
-Authorization: Bearer <WEBHOOK_SECRET>
+POST <destination.url>
+Authorization: Bearer <destination.secret>
 Content-Type: application/json
 ```
 
-**Retry behavior:** On non-200 response or connection failure, the pipeline retries once after a short delay. If the retry also fails, the pipeline exits with a non-zero code. No indefinite retry loop — that's the workflow tool's responsibility.
+**Multiple destinations:** The same payload is delivered to every destination. All destinations are attempted on each run — a single unreachable endpoint does not skip the others — and any failures are aggregated into one error.
 
-**Batch behavior:** In batch mode, the pipeline awaits a 200 response before processing the next file. A non-200 response halts the batch. The failed file remains in the source directory; successfully processed files have already been moved to `completed/`.
+**Retry behavior:** Per destination, on a non-200 response or connection failure the pipeline retries once after a short delay. If delivery to any destination still fails, the pipeline exits with a non-zero code. No indefinite retry loop — that's the workflow tool's responsibility.
+
+**Batch behavior:** In batch mode, the pipeline awaits successful delivery before processing the next file. A delivery failure halts the batch; the failed file remains in the source directory, while successfully processed files have already been moved to `completed/`.
+
+**Partial-failure caveat:** With multiple destinations, if some succeed and one fails the run is still treated as failed, so a batch retry re-delivers to the destinations that already succeeded. Receivers should be idempotent on the activity (e.g. dedupe by `file` + `schema_version`).
 
 ### File output
 
@@ -311,19 +317,39 @@ Or for a single file:
   "processed": 2,
   "failed": 0,
   "files": [
-    {"file": "morning-run.fit", "status": "ok", "activity_id": null},
-    {"file": "tuesday-tempo.fit", "status": "ok", "activity_id": null}
+    {"file": "morning-run.fit", "status": "ok"},
+    {"file": "tuesday-tempo.fit", "status": "ok"}
   ]
 }
 ```
 
-**Response (422 Unprocessable Entity):** Path not found or no FIT files present.
+Each entry in `files` carries `file` and `status`; failed entries add an `error` message.
+
+**Response (422 Unprocessable Entity):** Path not found, not a `.fit` file, or no FIT files present.
 **Response (401 Unauthorized):** Missing or invalid Bearer token.
-**Response (500 Internal Server Error):** Processing failed — details in response body and log.
+**Response (500 Internal Server Error):** Processing failed — structured JSON, never a raw traceback.
+
+### Upload endpoint
+
+```
+POST /upload
+Authorization: Bearer <SERVER_SECRET>
+Content-Type: multipart/form-data
+```
+
+Accepts a binary `.fit` file uploaded directly (form field `file`), rather than a path the server can already see. The file is saved to `UPLOAD_DIR`, run through the same pipeline, and moved to `UPLOAD_DIR/completed/` on success. The response uses the same shape as `/process` (a single-entry `files` array).
+
+The client-supplied filename is reduced to its basename before use, so a crafted name cannot write outside `UPLOAD_DIR`.
+
+**Response (503 Service Unavailable):** `UPLOAD_DIR` is not configured.
+**Response (422 Unprocessable Entity):** Upload is not a `.fit` file.
+**Response (401 / 500):** As for `/process`.
+
+Note: auth is enforced by the route dependency before this handler writes anything, but FastAPI buffers the multipart body before dependencies resolve — so auth gates the pipeline's own filesystem writes, not the framework's request buffering.
 
 ### Authentication
 
-A separate shared secret (`SERVER_SECRET` environment variable) authenticates requests to the HTTP endpoint. This is distinct from `WEBHOOK_SECRET` (which authenticates the pipeline's outgoing calls to the Rails webhook). Both are required when running the server.
+A separate secret (`SERVER_SECRET` environment variable) authenticates requests to the HTTP endpoint. This is distinct from the per-destination webhook secrets in `WEBHOOK_DESTINATIONS` (which authenticate the pipeline's outgoing calls). Both `SERVER_SECRET` and at least one webhook destination are required when running the server for live delivery.
 
 ### Starting the server
 
@@ -376,10 +402,10 @@ All configuration is via environment variables. A `.env` file is loaded automati
 
 | Variable | Default | Description |
 |---|---|---|
-| WEBHOOK_URL | required | Webhook endpoint URL for outgoing activity delivery |
-| WEBHOOK_SECRET | required | Bearer token for outgoing webhook authentication |
+| WEBHOOK_DESTINATIONS | required | JSON array of `{url, secret}` objects; payload is delivered to each, authenticating with that destination's own secret |
 | SERVER_SECRET | required if using HTTP endpoint | Bearer token for incoming HTTP endpoint authentication |
 | SERVER_PORT | 8000 | Port for the HTTP endpoint server |
+| UPLOAD_DIR | (empty) | Directory for files received via `POST /upload`; required to use that endpoint |
 | EXCLUDE_GPS | true | Exclude GPS coordinates from output |
 | EXCLUDE_DEVICE_INFO | true | Exclude device serial/version fields |
 | EXCLUDE_FIELDS | (empty) | Comma-separated additional fields to exclude |
@@ -437,7 +463,7 @@ Unresolved — surface before deciding silently:
 
 ## Relationship to training-insights
 
-The Training Insights Rails application (separate repo) is one consumer of this pipeline. It expects the payload shape documented above and uses the `WEBHOOK_SECRET` for authentication.
+The Training Insights Rails application (separate repo) is one consumer of this pipeline. It expects the payload shape documented above and is configured as one entry in `WEBHOOK_DESTINATIONS`, authenticating with that destination's own secret. Additional destinations (e.g. a logging sink) can be added without affecting it.
 
 Changes to the payload schema that affect Training Insights require coordinated updates in both repos. The `schema_version` field is the mechanism for managing this evolution.
 
