@@ -145,8 +145,8 @@ Cardiovascular drift using the speed/HR ratio (TrainingPeaks Pa:HR convention). 
 **tss_score (hrTSS)**
 `IF = avg_heart_rate / LTHR`; `hrTSS = (duration_seconds × IF²) / 3600 × 100`. LTHR resolved per-activity: FIT `zones_target.threshold_heart_rate` → `THRESHOLD_HR` env var → null with WARNING logged.
 
-**variability_index**
-`std(pace_s_per_km) / mean(pace_s_per_km)`. Lower = more consistent pacing. Requires pace stream.
+**pace_cv**
+Coefficient of variation of pace: `std(pace_s_per_km) / mean(pace_s_per_km)` (stopped samples excluded). Lower = more consistent pacing. Note: this is pace CV, not the Coggan Variability Index (Normalized Power / Average Power). Requires pace stream.
 
 **hr_zone_distribution**
 Time-in-zone percentages using the Friel LTHR-based 5-zone model. Default boundaries: Z1 <85%, Z2 85–92%, Z3 93–99%, Z4 100–105%, Z5 >105% of LTHR. Override with fixed BPM via `HR_ZONE_1` through `HR_ZONE_5`. Null if LTHR unavailable.
@@ -225,7 +225,7 @@ Every payload includes a `schema_version` field. The current version is `"1.0"`.
     "efficiency_factor": 1.48,
     "cardiac_drift_bpm": 11,
     "tss_score": 87,
-    "variability_index": 0.04,
+    "pace_cv": 0.04,
     "hr_zone_distribution": {
       "zone_1": 8,
       "zone_2": 34,

@@ -53,7 +53,7 @@ Present only when `StandardAnalyticsProcessor` is in the processor chain. All fi
 | `efficiency_factor` | float | m/min/bpm | yes — requires pace + HR streams |
 | `cardiac_drift_bpm` | int | bpm | yes — requires HR stream ≥ 8 records |
 | `tss_score` | float | TSS | yes — requires LTHR |
-| `variability_index` | float | — | yes — requires pace stream |
+| `pace_cv` | float | — | yes — coefficient of variation of pace; requires pace stream |
 | `hr_zone_distribution` | object | — | yes — requires HR stream + LTHR |
 | `pace_zone_distribution` | object | — | yes — requires pace zone config |
 | `trimp` | float | — | yes — requires RESTING_HR config |
@@ -154,7 +154,7 @@ Device info fields are excluded by default (`EXCLUDE_DEVICE_INFO=true`).
     "efficiency_factor": 1.288,
     "cardiac_drift_bpm": 21,
     "tss_score": 19.0,
-    "variability_index": 0.0917,
+    "pace_cv": 0.0917,
     "hr_zone_distribution": {
       "zone_1": 100.0,
       "zone_2": 0.0,

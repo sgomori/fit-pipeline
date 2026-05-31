@@ -47,7 +47,7 @@ class StandardAnalyticsProcessor(Processor):
         - efficiency_factor
         - cardiac_drift_bpm
         - tss_score (hrTSS)
-        - variability_index
+        - pace_cv
         - hr_zone_distribution
         - pace_zone_distribution
         - trimp
@@ -102,7 +102,7 @@ class StandardAnalyticsProcessor(Processor):
         )
         metrics["cardiac_drift_bpm"] = self._cardiac_drift(hr_stream)
         metrics["tss_score"] = self._tss(avg_hr, lthr, duration_s)
-        metrics["variability_index"] = self._variability_index(pace_stream)
+        metrics["pace_cv"] = self._pace_cv(pace_stream)
         metrics["hr_zone_distribution"] = self._hr_zone_distribution(
             hr_stream, lthr
         )
@@ -298,17 +298,19 @@ class StandardAnalyticsProcessor(Processor):
         logger.debug("hrTSS: IF=%.3f duration=%.0fs → %.1f", intensity_factor, duration_s, tss)
         return round(tss, 1)
 
-    def _variability_index(self, pace_stream: list[float | None]) -> float | None:
-        """Compute Variability Index = std(pace) / mean(pace).
+    def _pace_cv(self, pace_stream: list[float | None]) -> float | None:
+        """Compute the coefficient of variation of pace = std(pace) / mean(pace).
 
-        Higher VI indicates more variable effort (trail, intervals).
-        Lower VI indicates consistent effort (road easy run).
+        This is a pace-dispersion statistic (higher = more variable effort:
+        trail, intervals; lower = steady road run). It is NOT the Coggan
+        Variability Index (Normalized Power / Average Power), which is a
+        different metric on a ~1.0–1.3 scale.
 
         Args:
-            pace_stream: Pace values in s/km.
+            pace_stream: Pace values in s/km (None for stopped samples).
 
         Returns:
-            VI (unitless), or None.
+            Pace CV (unitless), or None.
         """
         clean = [p for p in pace_stream if p is not None]
         if len(clean) < 2:
@@ -320,9 +322,9 @@ class StandardAnalyticsProcessor(Processor):
             std_pace = statistics.stdev(clean)
         except statistics.StatisticsError:
             return None
-        vi = std_pace / mean_pace
-        logger.debug("Variability index: std=%.2f mean=%.2f → %.4f", std_pace, mean_pace, vi)
-        return round(vi, 4)
+        cv = std_pace / mean_pace
+        logger.debug("Pace CV: std=%.2f mean=%.2f → %.4f", std_pace, mean_pace, cv)
+        return round(cv, 4)
 
     def _hr_zone_distribution(
         self, hr_stream: list[float], lthr: int | None

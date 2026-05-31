@@ -133,11 +133,11 @@ Heart-rate-based Training Stress Score. Quantifies training load relative to thr
 - Null if LTHR is unavailable
 - Requires: LTHR (see resolution order above)
 
-### variability_index
+### pace_cv
 
-Coefficient of variation of pace — measures pacing consistency.
+Coefficient of variation of pace — measures pacing consistency. (Not the Coggan Variability Index.)
 
-- `VI = std(pace_s_per_km) / mean(pace_s_per_km)`
+- `pace_cv = std(pace_s_per_km) / mean(pace_s_per_km)`
 - Lower = more consistent pacing
 - Requires: pace stream
 

@@ -33,7 +33,7 @@ If v1 ships with these three things working well and tested, it's a success.
   - efficiency_factor
   - cardiac_drift_bpm
   - tss_score
-  - variability_index
+  - pace_cv
   - hr_zone_distribution
   - pace_zone_distribution
 - `FieldFilterProcessor` as a simple demonstration processor

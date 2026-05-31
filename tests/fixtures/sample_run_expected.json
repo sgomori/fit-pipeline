@@ -22,7 +22,7 @@
     "efficiency_factor": 1.288,
     "cardiac_drift_bpm": 21,
     "tss_score": 19.0,
-    "variability_index": 0.0917,
+    "pace_cv": 0.0917,
     "hr_zone_distribution": {
       "zone_1": 100.0,
       "zone_2": 0.0,

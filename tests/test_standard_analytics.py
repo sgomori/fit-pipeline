@@ -201,32 +201,37 @@ class TestTSS:
 
 
 # ---------------------------------------------------------------------------
-# Variability index
+# Pace CV (coefficient of variation)
 # ---------------------------------------------------------------------------
 
-class TestVariabilityIndex:
+class TestPaceCV:
     def test_returns_none_with_empty_stream(self, analytics_config: Config) -> None:
         proc = _make_processor(analytics_config)
-        assert proc._variability_index([]) is None
+        assert proc._pace_cv([]) is None
 
     def test_returns_none_with_single_value(self, analytics_config: Config) -> None:
         proc = _make_processor(analytics_config)
-        assert proc._variability_index([300.0]) is None
+        assert proc._pace_cv([300.0]) is None
 
-    def test_zero_vi_with_constant_pace(self, analytics_config: Config) -> None:
+    def test_ignores_none_samples(self, analytics_config: Config) -> None:
         proc = _make_processor(analytics_config)
-        result = proc._variability_index([300.0] * 50)
+        # None (stopped) samples are excluded, not treated as 0.0
+        assert proc._pace_cv([300.0, None, 300.0, None]) == 0.0
+
+    def test_zero_cv_with_constant_pace(self, analytics_config: Config) -> None:
+        proc = _make_processor(analytics_config)
+        result = proc._pace_cv([300.0] * 50)
         assert result == 0.0
 
-    def test_higher_vi_for_more_variable_pace(self, analytics_config: Config) -> None:
+    def test_higher_cv_for_more_variable_pace(self, analytics_config: Config) -> None:
         proc = _make_processor(analytics_config)
         steady = [300.0] * 50
         variable = [250.0, 350.0] * 25
-        vi_steady = proc._variability_index(steady)
-        vi_variable = proc._variability_index(variable)
-        assert vi_variable is not None
-        assert vi_steady is not None
-        assert vi_variable > vi_steady
+        cv_steady = proc._pace_cv(steady)
+        cv_variable = proc._pace_cv(variable)
+        assert cv_variable is not None
+        assert cv_steady is not None
+        assert cv_variable > cv_steady
 
 
 # ---------------------------------------------------------------------------
@@ -442,7 +447,7 @@ class TestFullProcessorSynthetic:
             "efficiency_factor",
             "cardiac_drift_bpm",
             "tss_score",
-            "variability_index",
+            "pace_cv",
             "hr_zone_distribution",
             "pace_zone_distribution",
             "trimp",
