@@ -48,6 +48,7 @@ class StandardAnalyticsProcessor(Processor):
         - efficiency_factor
         - cardiac_drift_bpm
         - tss_score (hrTSS)
+        - rtss_score (rTSS from Normalized Graded Pace)
         - pace_cv
         - hr_zone_distribution
         - pace_zone_distribution
@@ -103,6 +104,9 @@ class StandardAnalyticsProcessor(Processor):
         )
         metrics["cardiac_drift_bpm"] = self._cardiac_drift(hr_stream)
         metrics["tss_score"] = self._tss(avg_hr, lthr, duration_s)
+        metrics["rtss_score"] = self._rtss(
+            speed_stream, altitude_stream, distance_stream, duration_s
+        )
         metrics["pace_cv"] = self._pace_cv(pace_stream)
         metrics["hr_zone_distribution"] = self._hr_zone_distribution(
             hr_stream, lthr
@@ -298,6 +302,64 @@ class StandardAnalyticsProcessor(Processor):
         tss = (duration_s * intensity_factor ** 2) / 3600 * 100
         logger.debug("hrTSS: IF=%.3f duration=%.0fs → %.1f", intensity_factor, duration_s, tss)
         return round(tss, 1)
+
+    def _rtss(
+        self,
+        speed_stream: list[float | None],
+        altitude_stream: list[float],
+        distance_stream: list[float],
+        duration_s: float | None,
+    ) -> float | None:
+        """Compute rTSS (run Training Stress Score) from Normalized Graded Pace.
+
+        Unlike hrTSS (which uses average HR and cannot reward variability),
+        rTSS uses Normalized Graded Pace: grade-adjusted speed is smoothed over
+        a 30-second rolling window, then normalized via the 4th-power mean so
+        that surges are weighted more heavily.
+
+        Formula: IF = NGP_speed / threshold_speed;
+        rTSS = (duration_seconds × IF²) / 3600 × 100.
+
+        Args:
+            speed_stream: Speed in m/s with None for stopped samples.
+            altitude_stream: Altitude in metres.
+            distance_stream: Cumulative distance in metres.
+            duration_s: Activity duration in seconds.
+
+        Returns:
+            rTSS score, or None if THRESHOLD_PACE is not configured or data
+            is insufficient.
+        """
+        if self.config.threshold_pace is None:
+            logger.debug("THRESHOLD_PACE not configured; rtss_score is null")
+            return None
+        if duration_s is None or duration_s <= 0:
+            return None
+
+        gap_speeds = self._grade_adjusted_speed_series(
+            speed_stream, altitude_stream, distance_stream
+        )
+        if not gap_speeds:
+            return None
+
+        # Rolling 30 s average of grade-adjusted speed (window in samples).
+        window = max(1, round(30 / self.config.stream_sample_rate))
+        rolling: list[float] = []
+        for i in range(len(gap_speeds)):
+            chunk = gap_speeds[max(0, i - window + 1): i + 1]
+            rolling.append(statistics.mean(chunk))
+
+        # Normalized graded speed = 4th root of the mean of 4th powers.
+        ngp_speed = float(statistics.mean(r ** 4 for r in rolling) ** 0.25)
+
+        threshold_speed = 1000 / self.config.threshold_pace  # m/s
+        intensity_factor = ngp_speed / threshold_speed
+        rtss = (duration_s * intensity_factor ** 2) / 3600 * 100
+        logger.debug(
+            "rTSS: NGP=%.3f m/s IF=%.3f duration=%.0fs → %.1f",
+            ngp_speed, intensity_factor, duration_s, rtss,
+        )
+        return round(rtss, 1)
 
     def _pace_cv(self, pace_stream: list[float | None]) -> float | None:
         """Compute the coefficient of variation of pace = std(pace) / mean(pace).

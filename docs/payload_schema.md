@@ -52,7 +52,8 @@ Present only when `StandardAnalyticsProcessor` is in the processor chain. All fi
 | `aerobic_decoupling_pct` | float | % | yes — requires pace + HR streams |
 | `efficiency_factor` | float | m/min/bpm | yes — requires pace + HR streams |
 | `cardiac_drift_bpm` | int | bpm | yes — requires HR stream ≥ 8 records |
-| `tss_score` | float | TSS | yes — requires LTHR |
+| `tss_score` | float | TSS | yes (hrTSS) — requires LTHR |
+| `rtss_score` | float | TSS | yes (rTSS via NGP) — requires THRESHOLD_PACE + speed/altitude streams |
 | `pace_cv` | float | — | yes — coefficient of variation of pace; requires pace stream |
 | `hr_zone_distribution` | object | — | yes — requires HR stream + LTHR |
 | `pace_zone_distribution` | object | — | yes — requires pace zone config |
@@ -154,6 +155,7 @@ Device info fields are excluded by default (`EXCLUDE_DEVICE_INFO=true`).
     "efficiency_factor": 1.288,
     "cardiac_drift_bpm": 21,
     "tss_score": 19.0,
+    "rtss_score": 22.9,
     "pace_cv": 0.0917,
     "hr_zone_distribution": {
       "zone_1": 100.0,

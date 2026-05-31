@@ -33,6 +33,7 @@ def analytics_config(base_config: Config) -> Config:
     base_config.pace_zone_easy = 360        # 6:00/km
     base_config.pace_zone_moderate = 330    # 5:30/km
     base_config.pace_zone_threshold = 300   # 5:00/km
+    base_config.threshold_pace = 300        # 5:00/km — for rTSS / NGP
     return base_config
 
 

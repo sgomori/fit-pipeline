@@ -17,6 +17,7 @@ cfg = Config(
     threshold_hr=None, resting_hr=48, max_hr=185,
     trimp_gender="male",
     pace_zone_easy=360, pace_zone_moderate=330, pace_zone_threshold=300,
+    threshold_pace=300,
 )
 data = parse_fit_file("tests/fixtures/sample_run.fit", cfg)
 result = StandardAnalyticsProcessor(cfg).process(data)

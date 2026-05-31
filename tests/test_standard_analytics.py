@@ -201,6 +201,65 @@ class TestTSS:
 
 
 # ---------------------------------------------------------------------------
+# rTSS (Normalized Graded Pace)
+# ---------------------------------------------------------------------------
+
+class TestRTSS:
+    def _flat_course(self, speed_m_s: float, n: int) -> tuple[list[float], list[float], list[float]]:
+        speed = [speed_m_s] * n
+        altitude = [50.0] * n
+        distance = [i * speed_m_s for i in range(n)]  # 1 s spacing
+        return speed, altitude, distance
+
+    def test_returns_none_without_threshold_pace(self, analytics_config: Config) -> None:
+        analytics_config.threshold_pace = None
+        proc = _make_processor(analytics_config)
+        speed, alt, dist = self._flat_course(3.0, 60)
+        assert proc._rtss(speed, alt, dist, 3600) is None
+
+    def test_returns_none_without_duration(self, analytics_config: Config) -> None:
+        proc = _make_processor(analytics_config)
+        speed, alt, dist = self._flat_course(3.0, 60)
+        assert proc._rtss(speed, alt, dist, None) is None
+
+    def test_at_threshold_flat_equals_100_per_hour(self, analytics_config: Config) -> None:
+        # threshold_pace=300 s/km → threshold speed = 1000/300 m/s; steady flat
+        # run at exactly that speed for 1 h → IF=1 → rTSS=100.
+        analytics_config.threshold_pace = 300
+        proc = _make_processor(analytics_config)
+        threshold_speed = 1000 / 300
+        speed, alt, dist = self._flat_course(threshold_speed, 600)
+        result = proc._rtss(speed, alt, dist, 3600)
+        assert result is not None
+        assert abs(result - 100.0) < 1.0
+
+    def test_faster_than_threshold_exceeds_100_per_hour(self, analytics_config: Config) -> None:
+        analytics_config.threshold_pace = 300
+        proc = _make_processor(analytics_config)
+        faster = 1000 / 270  # 4:30/km, faster than 5:00/km threshold
+        speed, alt, dist = self._flat_course(faster, 600)
+        result = proc._rtss(speed, alt, dist, 3600)
+        assert result is not None
+        assert result > 100
+
+    def test_uphill_raises_rtss_vs_flat(self, analytics_config: Config) -> None:
+        # Same flat speed, but on a climb → grade-adjusted (NGP) speed is higher
+        # → higher rTSS than the flat equivalent.
+        analytics_config.threshold_pace = 300
+        proc = _make_processor(analytics_config)
+        n = 600
+        spd = 1000 / 300
+        speed = [spd] * n
+        flat_alt = [50.0] * n
+        climb_alt = [50.0 + i * 0.3 for i in range(n)]
+        distance = [i * spd for i in range(n)]
+        flat = proc._rtss(speed, flat_alt, distance, 3600)
+        climb = proc._rtss(speed, climb_alt, distance, 3600)
+        assert flat is not None and climb is not None
+        assert climb > flat
+
+
+# ---------------------------------------------------------------------------
 # Pace CV (coefficient of variation)
 # ---------------------------------------------------------------------------
 
@@ -447,6 +506,7 @@ class TestFullProcessorSynthetic:
             "efficiency_factor",
             "cardiac_drift_bpm",
             "tss_score",
+            "rtss_score",
             "pace_cv",
             "hr_zone_distribution",
             "pace_zone_distribution",

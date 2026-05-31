@@ -71,6 +71,9 @@ class Config:
     pace_zone_moderate: int | None = None
     pace_zone_threshold: int | None = None
 
+    # Analytics — threshold pace (s/km) for rTSS / Normalized Graded Pace
+    threshold_pace: int | None = None
+
     # Analytics — TRIMP
     resting_hr: int | None = None
     max_hr: int | None = None
@@ -175,6 +178,7 @@ def load_config(env_file: str | None = None) -> Config:
         pace_zone_easy=_int("PACE_ZONE_EASY"),
         pace_zone_moderate=_int("PACE_ZONE_MODERATE"),
         pace_zone_threshold=_int("PACE_ZONE_THRESHOLD"),
+        threshold_pace=_int("THRESHOLD_PACE"),
         resting_hr=_int("RESTING_HR"),
         max_hr=_int("MAX_HR"),
         trimp_gender=os.environ.get("TRIMP_GENDER", "male").lower(),

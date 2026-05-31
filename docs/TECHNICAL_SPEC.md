@@ -143,7 +143,10 @@ Cardiovascular drift using the speed/HR ratio (TrainingPeaks Pa:HR convention). 
 `Q4_avg_hr - Q1_avg_hr` (first and last 25% of heart_rate records). Requires ≥ 8 records. Note: pace is not controlled; elevation and pacing changes affect the value.
 
 **tss_score (hrTSS)**
-`IF = avg_heart_rate / LTHR`; `hrTSS = (duration_seconds × IF²) / 3600 × 100`. LTHR resolved per-activity: FIT `zones_target.threshold_heart_rate` → `THRESHOLD_HR` env var → null with WARNING logged.
+`IF = avg_heart_rate / LTHR`; `hrTSS = (duration_seconds × IF²) / 3600 × 100`. LTHR resolved per-activity: FIT `zones_target.threshold_heart_rate` → `THRESHOLD_HR` env var → null with WARNING logged. hrTSS uses *average* HR, so it cannot reward variability — see `rtss_score` for the pace-native score.
+
+**rtss_score (rTSS)**
+Run TSS from Normalized Graded Pace. Grade-adjusted speed is smoothed over a 30-second rolling window, then normalized via the 4th-power mean (NGP). `IF = NGP_speed / threshold_speed` (threshold from `THRESHOLD_PACE`, s/km); `rTSS = (duration_seconds × IF²) / 3600 × 100`. Because NGP weights surges, rTSS captures intensity distribution that hrTSS averages away. Null when `THRESHOLD_PACE` is unset (hrTSS remains the HR-only fallback). Requires speed + altitude + distance streams.
 
 **pace_cv**
 Coefficient of variation of pace: `std(pace_s_per_km) / mean(pace_s_per_km)` (stopped samples excluded). Lower = more consistent pacing. Note: this is pace CV, not the Coggan Variability Index (Normalized Power / Average Power). Requires pace stream.
@@ -423,6 +426,7 @@ All configuration is via environment variables. A `.env` file is loaded automati
 | PACE_ZONE_EASY | (empty) | Upper boundary of easy pace zone (s/km) |
 | PACE_ZONE_MODERATE | (empty) | Upper boundary of moderate pace zone (s/km) |
 | PACE_ZONE_THRESHOLD | (empty) | Upper boundary of threshold/hard boundary (s/km) |
+| THRESHOLD_PACE | (empty) | Functional threshold pace (s/km) for rTSS / NGP; null rtss_score if absent |
 
 ## Testing
 
