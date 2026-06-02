@@ -147,8 +147,14 @@ def _extract_session(
     activity["elevation_loss_meters"] = _round_or_none(session.get("total_descent"), 1)
     activity["average_heart_rate"] = session.get("avg_heart_rate")
     activity["max_heart_rate"] = session.get("max_heart_rate")
-    activity["average_cadence"] = session.get("avg_running_cadence") or session.get("avg_cadence")
-    activity["max_cadence"] = session.get("max_running_cadence") or session.get("max_cadence")
+    activity["average_cadence"] = _running_cadence_spm(
+        session.get("avg_running_cadence") or session.get("avg_cadence"),
+        session.get("avg_fractional_cadence"),
+    )
+    activity["max_cadence"] = _running_cadence_spm(
+        session.get("max_running_cadence") or session.get("max_cadence"),
+        session.get("max_fractional_cadence"),
+    )
     activity["average_power"] = session.get("avg_power")
     activity["max_power"] = session.get("max_power")
     activity["normalized_power"] = session.get("normalized_power")
@@ -236,6 +242,17 @@ def _extract_streams(messages: dict[str, Any], config: Config) -> dict[str, list
             rec.get(key) for rec in sampled_records if key in rec
         ]
 
+    # Running cadence is stored per-leg in rpm; expose it as steps per minute,
+    # folding in the fractional component. The standalone fractional_cadence
+    # stream is then redundant and dropped.
+    if "cadence" in streams:
+        streams["cadence"] = [
+            _running_cadence_spm(rec["cadence"], rec.get("fractional_cadence"))
+            for rec in sampled_records
+            if rec.get("cadence") is not None
+        ]
+    streams.pop("fractional_cadence", None)
+
     return {k: v for k, v in streams.items() if v}
 
 
@@ -260,8 +277,9 @@ def _extract_laps(messages: dict[str, Any]) -> list[dict[str, Any]]:
         lap_data["duration_seconds"] = _round_or_none(lap.get("total_elapsed_time"), 1)
         lap_data["average_heart_rate"] = lap.get("avg_heart_rate")
         lap_data["max_heart_rate"] = lap.get("max_heart_rate")
-        lap_data["average_cadence"] = (
-            lap.get("avg_running_cadence") or lap.get("avg_cadence")
+        lap_data["average_cadence"] = _running_cadence_spm(
+            lap.get("avg_running_cadence") or lap.get("avg_cadence"),
+            lap.get("avg_fractional_cadence"),
         )
 
         dist = lap_data.get("distance_meters")
@@ -305,6 +323,27 @@ def _extract_zones_target(messages: dict[str, Any]) -> dict[str, Any]:
         result["max_heart_rate"] = max_hr
 
     return result
+
+
+def _running_cadence_spm(
+    cadence: float | None, fractional: float | None
+) -> int | None:
+    """Convert FIT per-leg running cadence (rpm) to steps per minute.
+
+    Garmin stores running cadence in revolutions per minute (one full stride
+    cycle, i.e. one revolution per foot). The conventional unit runners see is
+    steps per minute: ``(cadence + fractional_cadence) * 2``.
+
+    Args:
+        cadence: Running cadence in rpm (per leg), or None.
+        fractional: Sub-integer cadence component in rpm, or None.
+
+    Returns:
+        Cadence in steps per minute (rounded int), or None if cadence is absent.
+    """
+    if cadence is None:
+        return None
+    return round((cadence + (fractional or 0.0)) * 2)
 
 
 def _round_or_none(value: Any, decimals: int = 0) -> float | int | None:

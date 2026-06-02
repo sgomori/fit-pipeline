@@ -29,8 +29,8 @@ Core metrics extracted from the FIT session message.
 | `elevation_loss_meters` | float | m | yes |
 | `average_heart_rate` | int | bpm | yes |
 | `max_heart_rate` | int | bpm | yes |
-| `average_cadence` | int | spm (strides/min) | yes |
-| `max_cadence` | int | spm | yes |
+| `average_cadence` | int | spm (steps/min) | yes |
+| `max_cadence` | int | spm (steps/min) | yes |
 | `average_power` | int | W | yes |
 | `max_power` | int | W | yes |
 | `normalized_power` | int | W | yes |
@@ -41,7 +41,7 @@ Core metrics extracted from the FIT session message.
 
 Fields with `null` values are omitted from the payload entirely (not included as explicit nulls).
 
-`average_cadence` is sourced from `avg_running_cadence` if present, falling back to `avg_cadence`. Both represent strides per minute (one foot strike = one stride).
+`average_cadence` is sourced from `avg_running_cadence` if present, falling back to `avg_cadence`. Garmin stores running cadence per leg in revolutions per minute (one full stride cycle), so it is converted to steps per minute as `(cadence + fractional_cadence) × 2` — matching the value runners see on the watch.
 
 ## computed_metrics
 
@@ -144,7 +144,7 @@ Device info fields are excluded by default (`EXCLUDE_DEVICE_INFO=true`).
     "elevation_loss_meters": 28.0,
     "average_heart_rate": 130,
     "max_heart_rate": 141,
-    "average_cadence": 88,
+    "average_cadence": 177,
     "average_power": 304,
     "normalized_power": 306,
     "total_calories": 236,
@@ -175,8 +175,8 @@ Device info fields are excluded by default (`EXCLUDE_DEVICE_INFO=true`).
     "grade_adjusted_efficiency_factor": 1.3147
   },
   "laps": [
-    {"started_at": "2024-01-15T07:00:00+00:00", "distance_meters": 1000.0, "duration_seconds": 360.0, "average_heart_rate": 119, "average_cadence": 86, "average_pace_per_km": 360.0},
-    {"started_at": "2024-01-15T07:06:00+00:00", "distance_meters": 1000.0, "duration_seconds": 357.4, "average_heart_rate": 132, "average_cadence": 88, "average_pace_per_km": 357.4}
+    {"started_at": "2024-01-15T07:00:00+00:00", "distance_meters": 1000.0, "duration_seconds": 360.0, "average_heart_rate": 119, "average_cadence": 172, "average_pace_per_km": 360.0},
+    {"started_at": "2024-01-15T07:06:00+00:00", "distance_meters": 1000.0, "duration_seconds": 357.4, "average_heart_rate": 132, "average_cadence": 176, "average_pace_per_km": 357.4}
   ]
 }
 ```

@@ -113,8 +113,8 @@ class StandardAnalyticsProcessor(Processor):
         )
         metrics["pace_zone_distribution"] = self._pace_zone_distribution(pace_stream)
 
-        trimp_result = self._trimp(avg_hr, activity, duration_s)
-        metrics["trimp"] = trimp_result
+        max_hr = self._resolve_max_hr(zones_target)
+        metrics["trimp"] = self._trimp(avg_hr, max_hr, duration_s)
 
         gap_metrics = self._grade_adjusted_pace(
             speed_stream, altitude_stream, distance_stream, avg_hr
@@ -161,6 +161,35 @@ class StandardAnalyticsProcessor(Processor):
             "No LTHR available (zones_target absent, THRESHOLD_HR not configured). "
             "tss_score and hr_zone_distribution will be null."
         )
+        return None
+
+    def _resolve_max_hr(self, zones_target: dict[str, Any]) -> int | None:
+        """Resolve the physiological max HR for TRIMP from config then FIT file.
+
+        Banister TRIMP needs the individual's physiological maximum, not the
+        peak observed in a single session, so the session ``max_heart_rate`` is
+        deliberately not used as a fallback.
+
+        Priority:
+            1. config.max_hr (athlete-known maximum)
+            2. zones_target.max_heart_rate (Garmin profile maximum)
+            3. None → TRIMP returns null
+
+        Args:
+            zones_target: Extracted zones_target FIT message fields.
+
+        Returns:
+            Max HR in BPM, or None.
+        """
+        if self.config.max_hr is not None:
+            logger.debug("Using max HR from config: %d bpm", self.config.max_hr)
+            return self.config.max_hr
+
+        fit_max = zones_target.get("max_heart_rate")
+        if fit_max is not None:
+            logger.debug("Using max HR from FIT file zones_target: %d bpm", fit_max)
+            return int(fit_max)
+
         return None
 
     # ------------------------------------------------------------------
@@ -518,7 +547,7 @@ class StandardAnalyticsProcessor(Processor):
     def _trimp(
         self,
         avg_hr: float | None,
-        activity: dict[str, Any],
+        max_hr: int | None,
         duration_s: float | None,
     ) -> float | None:
         """Compute Banister TRIMP (Training Impulse).
@@ -529,11 +558,11 @@ class StandardAnalyticsProcessor(Processor):
 
         Args:
             avg_hr: Average heart rate in BPM.
-            activity: Session summary dict (for max_heart_rate).
+            max_hr: Physiological max HR in BPM (resolved by _resolve_max_hr).
             duration_s: Activity duration in seconds.
 
         Returns:
-            TRIMP value, or None if resting HR is not configured.
+            TRIMP value, or None if resting or max HR is unavailable.
         """
         resting_hr = self.config.resting_hr
         if resting_hr is None:
@@ -543,11 +572,10 @@ class StandardAnalyticsProcessor(Processor):
         if avg_hr is None or duration_s is None or duration_s <= 0:
             return None
 
-        # Configured MAX_HR takes priority — Banister TRIMP needs the individual's
-        # physiological maximum, not just the peak observed in this session.
-        max_hr = self.config.max_hr or activity.get("max_heart_rate")
         if max_hr is None:
-            logger.warning("MAX_HR not configured and max_heart_rate absent from FIT; TRIMP is null")
+            logger.warning(
+                "No max HR available (MAX_HR not configured, absent from FIT); TRIMP is null"
+            )
             return None
 
         hr_range = float(max_hr) - float(resting_hr)

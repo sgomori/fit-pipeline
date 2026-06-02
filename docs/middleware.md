@@ -34,7 +34,7 @@ See [Analytics Metrics](#analytics-metrics) below for full formula documentation
 | Variable | Used by |
 |---|---|
 | `THRESHOLD_HR` | TSS (hrTSS), HR zone distribution |
-| `MAX_HR` | TRIMP (physiological ceiling; overrides session max) |
+| `MAX_HR` | TRIMP (physiological ceiling; overrides the FIT profile max) |
 | `RESTING_HR` | TRIMP |
 | `TRIMP_GENDER` | TRIMP coefficient selection (`male`/`female`) |
 | `PACE_ZONE_EASY` | Pace zone distribution (upper boundary, s/km) |
@@ -181,8 +181,8 @@ Banister Training Impulse — load metric based on HR reserve.
 - `hrr = (avg_hr - resting_hr) / (max_hr - resting_hr)`
 - Male coefficients (default): `TRIMP = duration_min × hrr × 0.64 × e^(1.92 × hrr)`
 - Female coefficients (`TRIMP_GENDER=female`): `TRIMP = duration_min × hrr × 0.86 × e^(1.67 × hrr)`
-- `max_hr` resolution: `MAX_HR` config → session `max_heart_rate` field
-- Null if `RESTING_HR` is not configured
+- `max_hr` resolution: `MAX_HR` config → FIT `zones_target.max_heart_rate` (the athlete's profile maximum). The session peak is **not** used — Banister TRIMP requires the physiological maximum.
+- Null if `RESTING_HR` is not configured, or if no max HR is available
 - Requires: RESTING_HR config + max HR source
 
 ### avg_grade_adjusted_pace_per_km / grade_adjusted_efficiency_factor

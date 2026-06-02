@@ -14,9 +14,14 @@ import sys
 from pathlib import Path
 
 from fit_pipeline.batch import process_directory
-from fit_pipeline.config import Config, configure_logging, load_config
+from fit_pipeline.config import configure_logging, load_config
 from fit_pipeline.core import build_processor_chain, process_file
-from fit_pipeline.exceptions import ConfigError, DeliveryError, MiddlewareError, ParseError
+from fit_pipeline.exceptions import (
+    ConfigError,
+    DeliveryError,
+    MiddlewareError,
+    ParseError,
+)
 
 # Import processor chain from project config module
 from processors import PROCESSOR_CHAIN
@@ -64,17 +69,15 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
 
     try:
-        config = load_config(args.env_file)
+        config = load_config(
+            args.env_file,
+            cli_dry_run=args.dry_run,
+            cli_output_file=args.output,
+        )
     except ConfigError as exc:
         # Logging not configured yet — use stderr directly
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
-
-    # CLI flags override .env settings
-    if args.dry_run:
-        config.dry_run = True
-    if args.output:
-        config.output_file = args.output
 
     configure_logging(config)
 

@@ -7,8 +7,16 @@ from fit_pipeline.config import (
     WebhookDestination,
     _validate,
     _webhook_destinations,
+    load_config,
 )
 from fit_pipeline.exceptions import ConfigError
+
+
+@pytest.fixture
+def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Clear delivery-related env vars so load_config sees no destinations."""
+    for var in ("WEBHOOK_DESTINATIONS", "DRY_RUN", "OUTPUT_FILE"):
+        monkeypatch.delenv(var, raising=False)
 
 
 class TestWebhookDestinationsParsing:
@@ -86,3 +94,24 @@ class TestValidate:
             webhook_destinations=[WebhookDestination("https://a.example.com/h", "s")],
         )
         _validate(config)  # no raise
+
+
+class TestLoadConfigCliOverrides:
+    def test_missing_destinations_raises_without_overrides(
+        self, clean_env: None
+    ) -> None:
+        with pytest.raises(ConfigError, match="WEBHOOK_DESTINATIONS"):
+            load_config()
+
+    def test_cli_dry_run_relaxes_destination_requirement(
+        self, clean_env: None
+    ) -> None:
+        config = load_config(cli_dry_run=True)
+        assert config.dry_run is True
+
+    def test_cli_output_file_relaxes_destination_requirement(
+        self, clean_env: None
+    ) -> None:
+        config = load_config(cli_output_file="/tmp/out.json")
+        assert config.output_file == "/tmp/out.json"
+        assert config.dry_run is False

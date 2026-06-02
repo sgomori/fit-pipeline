@@ -374,12 +374,11 @@ class TestTRIMP:
     def test_returns_none_without_resting_hr(self, base_config: Config) -> None:
         base_config.resting_hr = None
         proc = _make_processor(base_config)
-        assert proc._trimp(150.0, {"max_heart_rate": 185}, 3600) is None
+        assert proc._trimp(150.0, 185, 3600) is None
 
     def test_returns_none_without_max_hr(self, analytics_config: Config) -> None:
-        analytics_config.max_hr = None
         proc = _make_processor(analytics_config)
-        assert proc._trimp(150.0, {}, 3600) is None
+        assert proc._trimp(150.0, None, 3600) is None
 
     def test_known_male_trimp(self, analytics_config: Config) -> None:
         # resting=48, max=185, avg=150, duration=3600s (60min)
@@ -393,16 +392,27 @@ class TestTRIMP:
         expected = 60 * hrr * 0.64 * math.exp(1.92 * hrr)
 
         proc = _make_processor(analytics_config)
-        result = proc._trimp(avg, {"max_heart_rate": max_hr}, dur)
+        result = proc._trimp(avg, max_hr, dur)
         assert result is not None
         assert abs(result - round(expected, 1)) < 0.5
 
-    def test_uses_max_hr_from_config_when_absent_from_fit(self, analytics_config: Config) -> None:
+
+class TestResolveMaxHr:
+    def test_config_takes_priority_over_fit(self, analytics_config: Config) -> None:
         analytics_config.max_hr = 185
         proc = _make_processor(analytics_config)
-        result = proc._trimp(150.0, {}, 3600)  # no max_heart_rate in activity
-        assert result is not None
-        assert result > 0
+        assert proc._resolve_max_hr({"max_heart_rate": 200}) == 185
+
+    def test_falls_back_to_fit_physiological_max(self, analytics_config: Config) -> None:
+        analytics_config.max_hr = None
+        proc = _make_processor(analytics_config)
+        # zones_target carries the athlete's profile max, not the session peak
+        assert proc._resolve_max_hr({"max_heart_rate": 181}) == 181
+
+    def test_none_when_neither_config_nor_fit(self, analytics_config: Config) -> None:
+        analytics_config.max_hr = None
+        proc = _make_processor(analytics_config)
+        assert proc._resolve_max_hr({}) is None
 
 
 # ---------------------------------------------------------------------------

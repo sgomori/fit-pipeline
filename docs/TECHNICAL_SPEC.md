@@ -158,7 +158,7 @@ Time-in-zone percentages using LTHR-based zones (Joe Friel's running zones, comp
 Time in four zones (easy, moderate, threshold, hard) as percentages. Boundaries from `PACE_ZONE_EASY`, `PACE_ZONE_MODERATE`, `PACE_ZONE_THRESHOLD` (s/km). Null if none configured.
 
 **trimp (Banister Training Impulse)**
-`hrr = (avg_hr - resting_hr) / (max_hr - resting_hr)`; `TRIMP = duration_min × hrr × c1 × e^(c2 × hrr)`. Male coefficients (default): c1=0.64, c2=1.92. Female (`TRIMP_GENDER=female`): c1=0.86, c2=1.67. `max_hr` resolution: `MAX_HR` config → session `max_heart_rate`. Null if `RESTING_HR` not configured.
+`hrr = (avg_hr - resting_hr) / (max_hr - resting_hr)`; `TRIMP = duration_min × hrr × c1 × e^(c2 × hrr)`. Male coefficients (default): c1=0.64, c2=1.92. Female (`TRIMP_GENDER=female`): c1=0.86, c2=1.67. `max_hr` resolution: `MAX_HR` config → FIT `zones_target.max_heart_rate` (athlete profile max; the session peak is not used). Null if `RESTING_HR` not configured or no max HR is available.
 
 **avg_grade_adjusted_pace_per_km / grade_adjusted_efficiency_factor**
 Grade-Adjusted Pace normalizes pace for elevation. Per-record: `grade_pct = alt_diff_m / dist_diff_m × 100`; uphill factor `1 + 0.033 × grade_pct`, downhill `1 - 0.018 × |grade_pct|` capped at −15%; the grade-adjusted (flat-equivalent) speed is `speed × factor`. The summary averages those grade-adjusted *speeds* arithmetically (stopped samples excluded), reports the equivalent pace, and `grade_adjusted_efficiency_factor = avg_gap_speed_m_per_min / avg_hr`. Polynomial is a Strava-style approximation. Requires speed + altitude + distance streams.
@@ -419,7 +419,7 @@ All configuration is via environment variables. A `.env` file is loaded automati
 | LOG_LEVEL | INFO | Logging level (DEBUG, INFO, WARNING, ERROR) |
 | LOG_FILE | (empty) | Log file path; logs to stdout if empty |
 | THRESHOLD_HR | (empty) | Static LTHR fallback; per-activity FIT value takes priority |
-| MAX_HR | (empty) | Max HR for TRIMP; overrides session max_heart_rate |
+| MAX_HR | (empty) | Max HR for TRIMP; overrides the FIT profile max (zones_target) |
 | RESTING_HR | (empty) | Resting HR for TRIMP; null TRIMP if absent |
 | TRIMP_GENDER | male | Banister TRIMP coefficient set (male/female) |
 | HR_ZONE_1 through HR_ZONE_5 | (derived) | HR zone upper boundaries in BPM; overrides LTHR % calculation |

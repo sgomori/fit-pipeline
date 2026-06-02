@@ -121,11 +121,21 @@ def _webhook_destinations() -> list[WebhookDestination]:
     return destinations
 
 
-def load_config(env_file: str | None = None) -> Config:
+def load_config(
+    env_file: str | None = None,
+    *,
+    cli_dry_run: bool = False,
+    cli_output_file: str | None = None,
+) -> Config:
     """Load configuration from environment variables and optional .env file.
+
+    CLI overrides are applied before validation so that, for example,
+    ``--dry-run`` relaxes the WEBHOOK_DESTINATIONS requirement.
 
     Args:
         env_file: Path to a .env file. Defaults to .env in the working directory.
+        cli_dry_run: If True, force dry-run mode regardless of DRY_RUN.
+        cli_output_file: If set, force file output regardless of OUTPUT_FILE.
 
     Returns:
         Populated Config instance.
@@ -183,6 +193,12 @@ def load_config(env_file: str | None = None) -> Config:
         max_hr=_int("MAX_HR"),
         trimp_gender=os.environ.get("TRIMP_GENDER", "male").lower(),
     )
+
+    # CLI flags override .env settings before validation runs.
+    if cli_dry_run:
+        config.dry_run = True
+    if cli_output_file:
+        config.output_file = cli_output_file
 
     _validate(config)
     return config

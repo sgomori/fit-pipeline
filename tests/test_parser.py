@@ -4,7 +4,7 @@ import pytest
 
 from fit_pipeline.config import Config
 from fit_pipeline.exceptions import ParseError
-from fit_pipeline.parser import parse_fit_file
+from fit_pipeline.parser import _running_cadence_spm, parse_fit_file
 
 
 class TestParseErrors:
@@ -107,3 +107,44 @@ class TestSampleFit:
     def test_zones_target_is_dict(self, sample_fit_path, base_config: Config) -> None:
         result = parse_fit_file(sample_fit_path, base_config)
         assert isinstance(result["zones_target"], dict)
+
+
+class TestRunningCadenceConversion:
+    """Running cadence is stored per-leg in rpm; we expose steps per minute."""
+
+    def test_helper_doubles_and_adds_fractional(self) -> None:
+        # (88 + 0.289) * 2 = 176.578 -> 177
+        assert _running_cadence_spm(88, 0.289) == 177
+
+    def test_helper_handles_missing_fractional(self) -> None:
+        assert _running_cadence_spm(91, None) == 182
+
+    def test_helper_returns_none_when_cadence_absent(self) -> None:
+        assert _running_cadence_spm(None, 0.5) is None
+
+    def test_activity_cadence_in_steps_per_minute(
+        self, sample_fit_path, base_config: Config
+    ) -> None:
+        activity = parse_fit_file(sample_fit_path, base_config)["activity"]
+        # sample_run.fit: avg (88 + 0.289)*2, max (91 + 0.0)*2
+        assert activity["average_cadence"] == 177
+        assert activity["max_cadence"] == 182
+
+    def test_lap_cadence_in_steps_per_minute(
+        self, sample_fit_path, base_config: Config
+    ) -> None:
+        laps = parse_fit_file(sample_fit_path, base_config)["laps"]
+        cadences = [lap["average_cadence"] for lap in laps if "average_cadence" in lap]
+        assert cadences  # at least one lap reports cadence
+        # Plausible running cadence in spm, not raw per-leg rpm (~85)
+        assert all(c > 120 for c in cadences)
+
+    def test_cadence_stream_doubled_and_fractional_dropped(
+        self, sample_fit_path, base_config: Config
+    ) -> None:
+        streams = parse_fit_file(sample_fit_path, base_config)["streams"]
+        assert "fractional_cadence" not in streams
+        cadence = streams.get("cadence", [])
+        assert cadence
+        # All steady-state samples land in the spm range, not raw rpm
+        assert max(cadence) > 120
