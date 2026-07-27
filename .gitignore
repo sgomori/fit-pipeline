@@ -21,6 +21,8 @@ htmlcov/
 
 # Environment
 .env
+.env.*
+!.env.example
 *.local.env
 
 # Editors

@@ -52,7 +52,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--env-file",
         metavar="FILE",
         default=None,
-        help="Path to a .env file (defaults to .env in the working directory)",
+        help="Path to a .env file (defaults to the .env at the project root)",
     )
     return parser.parse_args(argv)
 

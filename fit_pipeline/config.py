@@ -133,7 +133,9 @@ def load_config(
     ``--dry-run`` relaxes the WEBHOOK_DESTINATIONS requirement.
 
     Args:
-        env_file: Path to a .env file. Defaults to .env in the working directory.
+        env_file: Path to a .env file. Defaults to the nearest .env found by
+            walking up from this package's directory, which is the project
+            root regardless of the current working directory.
         cli_dry_run: If True, force dry-run mode regardless of DRY_RUN.
         cli_output_file: If set, force file output regardless of OUTPUT_FILE.
 
@@ -149,8 +151,8 @@ def load_config(
         load_dotenv()
 
     def _int(key: str, default: int | None = None) -> int | None:
-        val = os.environ.get(key)
-        if val is None:
+        val = os.environ.get(key, "").strip()
+        if not val:
             return default
         try:
             return int(val)
@@ -158,8 +160,14 @@ def load_config(
             raise ConfigError(f"{key} must be an integer, got: {val!r}") from exc
 
     def _bool(key: str, default: bool) -> bool:
-        val = os.environ.get(key, str(default)).lower()
+        val = os.environ.get(key, "").strip().lower()
+        if not val:
+            return default
         return val in ("1", "true", "yes")
+
+    def _str(key: str, default: str = "") -> str:
+        val = os.environ.get(key, "").strip()
+        return val or default
 
     def _str_list(key: str) -> list[str]:
         val = os.environ.get(key, "")
@@ -167,18 +175,18 @@ def load_config(
 
     config = Config(
         webhook_destinations=_webhook_destinations(),
-        server_secret=os.environ.get("SERVER_SECRET", ""),
+        server_secret=_str("SERVER_SECRET"),
         server_port=_int("SERVER_PORT", 8000) or 8000,
-        upload_dir=os.environ.get("UPLOAD_DIR", ""),
+        upload_dir=_str("UPLOAD_DIR"),
         exclude_gps=_bool("EXCLUDE_GPS", True),
         exclude_device_info=_bool("EXCLUDE_DEVICE_INFO", True),
         exclude_fields=_str_list("EXCLUDE_FIELDS"),
         include_streams=_bool("INCLUDE_STREAMS", True),
         stream_sample_rate=_int("STREAM_SAMPLE_RATE", 3) or 3,
         dry_run=_bool("DRY_RUN", False),
-        output_file=os.environ.get("OUTPUT_FILE", ""),
-        log_level=os.environ.get("LOG_LEVEL", "INFO").upper(),
-        log_file=os.environ.get("LOG_FILE", ""),
+        output_file=_str("OUTPUT_FILE"),
+        log_level=_str("LOG_LEVEL", "INFO").upper(),
+        log_file=_str("LOG_FILE"),
         threshold_hr=_int("THRESHOLD_HR"),
         hr_zone_1=_int("HR_ZONE_1"),
         hr_zone_2=_int("HR_ZONE_2"),

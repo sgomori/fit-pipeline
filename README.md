@@ -63,7 +63,10 @@ STREAM_SAMPLE_RATE=3        # seconds between samples (default: 3)
 
 # Output
 DRY_RUN=false
-OUTPUT_FILE=                 # path to write JSON output, leave empty to POST
+# Path to write JSON output; leave empty to POST. Keep the comment on its own
+# line — python-dotenv only strips an inline comment when a value precedes it,
+# so `OUTPUT_FILE=  # comment` assigns the comment text as the value.
+OUTPUT_FILE=
 
 # Logging
 LOG_LEVEL=INFO
