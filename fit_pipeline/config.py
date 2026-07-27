@@ -15,6 +15,15 @@ from fit_pipeline.exceptions import ConfigError
 
 logger = logging.getLogger(__name__)
 
+# Accepted spellings for boolean environment variables. Anything else is a
+# typo and raises rather than silently resolving to False.
+_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
+_FALSE_VALUES = frozenset({"0", "false", "no", "off"})
+_BOOL_VALUES_HELP = "true/false, yes/no, on/off, or 1/0"
+
+# Logging levels configure_logging can resolve on the logging module.
+_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
 
 @dataclass(frozen=True)
 class WebhookDestination:
@@ -163,7 +172,13 @@ def load_config(
         val = os.environ.get(key, "").strip().lower()
         if not val:
             return default
-        return val in ("1", "true", "yes")
+        if val in _TRUE_VALUES:
+            return True
+        if val in _FALSE_VALUES:
+            return False
+        raise ConfigError(
+            f"{key} must be one of {_BOOL_VALUES_HELP}, got: {val!r}"
+        )
 
     def _str(key: str, default: str = "") -> str:
         val = os.environ.get(key, "").strip()
@@ -221,6 +236,12 @@ def _validate(config: Config) -> None:
 
     if config.trimp_gender not in ("male", "female"):
         raise ConfigError(f"TRIMP_GENDER must be 'male' or 'female', got: {config.trimp_gender!r}")
+
+    if config.log_level not in _LOG_LEVELS:
+        raise ConfigError(
+            f"LOG_LEVEL must be one of {', '.join(_LOG_LEVELS)}, "
+            f"got: {config.log_level!r}"
+        )
 
     if missing:
         raise ConfigError(

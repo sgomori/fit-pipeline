@@ -260,6 +260,92 @@ class TestBlankEnvValues:
         assert config.include_streams is False
 
 
+class TestBoolParsing:
+    """An unrecognized boolean must fail loudly, not resolve to False."""
+
+    @pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on"])
+    def test_accepted_true_spellings(
+        self,
+        clean_env: None,
+        empty_env_file: str,
+        monkeypatch: pytest.MonkeyPatch,
+        value: str,
+    ) -> None:
+        monkeypatch.setenv("EXCLUDE_GPS", value)
+        assert load_config(empty_env_file, cli_dry_run=True).exclude_gps is True
+
+    @pytest.mark.parametrize("value", ["0", "false", "FALSE", "no", "off"])
+    def test_accepted_false_spellings(
+        self,
+        clean_env: None,
+        empty_env_file: str,
+        monkeypatch: pytest.MonkeyPatch,
+        value: str,
+    ) -> None:
+        monkeypatch.setenv("EXCLUDE_GPS", value)
+        assert load_config(empty_env_file, cli_dry_run=True).exclude_gps is False
+
+    @pytest.mark.parametrize("value", ["ture", "y", "t", "enabled", "maybe", "2"])
+    def test_typo_raises_rather_than_shipping_gps(
+        self,
+        clean_env: None,
+        empty_env_file: str,
+        monkeypatch: pytest.MonkeyPatch,
+        value: str,
+    ) -> None:
+        """A misspelled EXCLUDE_GPS previously sent GPS coordinates to the webhook."""
+        monkeypatch.setenv("EXCLUDE_GPS", value)
+        with pytest.raises(ConfigError, match="EXCLUDE_GPS must be one of"):
+            load_config(empty_env_file, cli_dry_run=True)
+
+
+class TestLogLevelValidation:
+    @pytest.mark.parametrize(
+        "value", ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "debug", " info "]
+    )
+    def test_accepted_levels(
+        self,
+        clean_env: None,
+        empty_env_file: str,
+        monkeypatch: pytest.MonkeyPatch,
+        value: str,
+    ) -> None:
+        monkeypatch.setenv("LOG_LEVEL", value)
+        config = load_config(empty_env_file, cli_dry_run=True)
+        assert config.log_level == value.strip().upper()
+
+    @pytest.mark.parametrize("value", ["VERBOSE", "warn", "trace", "notset"])
+    def test_unknown_level_raises(
+        self,
+        clean_env: None,
+        empty_env_file: str,
+        monkeypatch: pytest.MonkeyPatch,
+        value: str,
+    ) -> None:
+        """Previously resolved silently to INFO, or crashed uvicorn with a KeyError."""
+        monkeypatch.setenv("LOG_LEVEL", value)
+        with pytest.raises(ConfigError, match="LOG_LEVEL must be one of"):
+            load_config(empty_env_file, cli_dry_run=True)
+
+    def test_every_accepted_level_is_valid_for_uvicorn(self) -> None:
+        """server.py passes log_level.lower() straight into uvicorn.run()."""
+        from uvicorn.config import LOG_LEVELS
+
+        from fit_pipeline.config import _LOG_LEVELS
+
+        for level in _LOG_LEVELS:
+            assert level.lower() in LOG_LEVELS
+
+    def test_every_accepted_level_resolves_on_logging_module(self) -> None:
+        """configure_logging does getattr(logging, level)."""
+        import logging
+
+        from fit_pipeline.config import _LOG_LEVELS
+
+        for level in _LOG_LEVELS:
+            assert isinstance(getattr(logging, level, None), int)
+
+
 class TestEnvFileWithUnfilledKeys:
     def test_env_example_style_blank_keys_load_cleanly(
         self, clean_env: None, tmp_path: Path
