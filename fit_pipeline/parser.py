@@ -5,7 +5,7 @@ from garmin_fit_sdk directly.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +15,16 @@ from fit_pipeline.config import Config
 from fit_pipeline.exceptions import ParseError
 
 logger = logging.getLogger(__name__)
+
+# FIT timestamps count seconds from this epoch, not the Unix epoch.
+_GARMIN_EPOCH = datetime(1989, 12, 31, tzinfo=timezone.utc)
+
+# Real-world UTC offsets never exceed +/-14 hours. A larger value means
+# local_timestamp is corrupt rather than genuinely offset.
+_MAX_UTC_OFFSET_SECONDS = 14 * 3600
+
+# UTC offsets are whole quarter-hours worldwide; rounding absorbs recording jitter.
+_OFFSET_ROUNDING_SECONDS = 900
 
 # GPS fields excluded by default (EXCLUDE_GPS=true)
 _GPS_FIELDS = {"position_lat", "position_long"}
@@ -92,6 +102,49 @@ def parse_fit_file(path: str | Path, config: Config) -> dict[str, Any]:
     return result
 
 
+def _utc_offset_seconds(messages: dict[str, Any], filename: str) -> int | None:
+    """Derive the UTC offset the activity was recorded at.
+
+    The activity message carries both a UTC ``timestamp`` and a
+    ``local_timestamp``; their difference is the recording offset. Taking it
+    per-file means activities recorded while travelling get their true local
+    date rather than a assumed home timezone.
+
+    Args:
+        messages: Decoded FIT messages from Decoder.read().
+        filename: Source filename (used in logging).
+
+    Returns:
+        Offset in seconds, rounded to the nearest quarter-hour, or None when
+        the FIT file does not carry a usable local_timestamp.
+    """
+    activity_mesgs = messages.get("activity_mesgs", [])
+    if not activity_mesgs:
+        return None
+
+    activity = activity_mesgs[0]
+    local_raw = activity.get("local_timestamp")
+    utc = activity.get("timestamp")
+
+    # local_timestamp is a local_date_time, which the SDK leaves as a raw int,
+    # while timestamp is a date_time it converts to a datetime.
+    if not isinstance(local_raw, int) or not isinstance(utc, datetime):
+        return None
+
+    delta = (_GARMIN_EPOCH + timedelta(seconds=local_raw) - utc).total_seconds()
+
+    if abs(delta) > _MAX_UTC_OFFSET_SECONDS:
+        logger.warning(
+            "%s has an implausible local_timestamp (offset %.1f hours); "
+            "local start time will be omitted",
+            filename,
+            delta / 3600,
+        )
+        return None
+
+    return round(delta / _OFFSET_ROUNDING_SECONDS) * _OFFSET_ROUNDING_SECONDS
+
+
 def _extract_session(
     messages: dict[str, Any], filename: str, config: Config
 ) -> dict[str, Any]:
@@ -127,6 +180,14 @@ def _extract_session(
         activity["started_at"] = start_time.astimezone(timezone.utc).isoformat()
     elif start_time is not None:
         activity["started_at"] = str(start_time)
+
+    # Local start time. Both fields are omitted when the offset is unknown —
+    # no home timezone is assumed, since the framework cannot know it.
+    offset = _utc_offset_seconds(messages, filename)
+    if offset is not None and isinstance(start_time, datetime):
+        local_start = start_time.astimezone(timezone.utc) + timedelta(seconds=offset)
+        activity["started_at_local"] = local_start.replace(tzinfo=None).isoformat()
+        activity["utc_offset_seconds"] = offset
 
     # Sport type
     sport = session.get("sport", "")

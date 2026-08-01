@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from fit_pipeline.config import Config, WebhookDestination
+from fit_pipeline.core import SCHEMA_VERSION
 from fit_pipeline.delivery import (
     DryRunDelivery,
     FileDelivery,
@@ -17,7 +18,7 @@ from fit_pipeline.delivery import (
 from fit_pipeline.exceptions import DeliveryError
 
 _SAMPLE_PAYLOAD = {
-    "schema_version": "1.0",
+    "schema_version": SCHEMA_VERSION,
     "source": "garmin_fit",
     "file": "test.fit",
     "processed_at": "2024-03-15T09:00:00+00:00",
@@ -40,7 +41,7 @@ class TestWebhookDelivery:
             _, kwargs = mock_post.call_args
             assert kwargs["headers"]["Authorization"] == "Bearer secret"
             body = json.loads(mock_post.call_args[1]["content"])
-            assert body["schema_version"] == "1.0"
+            assert body["schema_version"] == SCHEMA_VERSION
 
     def test_retries_on_non_200_then_raises(self) -> None:
         delivery = WebhookDelivery("https://example.com/webhook", "secret")
@@ -81,7 +82,7 @@ class TestFileDelivery:
         delivery.deliver(_SAMPLE_PAYLOAD)
         assert output.exists()
         written = json.loads(output.read_text())
-        assert written["schema_version"] == "1.0"
+        assert written["schema_version"] == SCHEMA_VERSION
 
     def test_creates_parent_directory(self, tmp_path: Path) -> None:
         output = tmp_path / "subdir" / "deep" / "output.json"
@@ -102,7 +103,7 @@ class TestDryRunDelivery:
         delivery.deliver(_SAMPLE_PAYLOAD)
         captured = capsys.readouterr()
         written = json.loads(captured.out)
-        assert written["schema_version"] == "1.0"
+        assert written["schema_version"] == SCHEMA_VERSION
 
     def test_does_not_make_http_requests(self) -> None:
         delivery = DryRunDelivery()
@@ -190,4 +191,4 @@ class TestMakeDelivery:
         delivery.deliver(_SAMPLE_PAYLOAD)
         written = json.loads(output.read_text())
         assert "schema_version" in written
-        assert written["schema_version"] == "1.0"
+        assert written["schema_version"] == SCHEMA_VERSION

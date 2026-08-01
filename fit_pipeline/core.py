@@ -16,6 +16,10 @@ from fit_pipeline.processor import Processor
 
 logger = logging.getLogger(__name__)
 
+# Webhook contract version. 1.1 added activity.started_at_local and
+# activity.utc_offset_seconds; both are additive and may be absent.
+SCHEMA_VERSION = "1.1"
+
 
 def process_file(
     path: str | Path,
@@ -85,7 +89,7 @@ def _build_payload(data: dict[str, Any], filename: str, config: Config | None = 
         processed_at, activity, and optional computed_metrics and streams.
     """
     payload: dict[str, Any] = {
-        "schema_version": "1.0",
+        "schema_version": SCHEMA_VERSION,
         "source": "garmin_fit",
         "file": filename,
         "processed_at": datetime.now(timezone.utc).isoformat(),

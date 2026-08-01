@@ -22,7 +22,7 @@ If v1 ships with these three things working well and tested, it's a success.
 - GPS coordinate exclusion (default on)
 - Device info exclusion (default on)
 - Stream sampling at configurable rate (default 3 seconds)
-- Schema version field in every payload (`"schema_version": "1.0"`)
+- Schema version field in every payload (`"schema_version": "1.1"`)
 - Single file and directory (batch) invocation via CLI
 
 ### Middleware

@@ -203,11 +203,11 @@ When `DRY_RUN=true` or `--dry-run` is passed, the pipeline parses, processes, an
 
 ## Webhook payload schema
 
-Every payload includes a `schema_version` field. The current version is `"1.0"`. Consumers should check this field when handling payloads to support graceful evolution.
+Every payload includes a `schema_version` field. The current version is `"1.1"`. Consumers should check this field when handling payloads to support graceful evolution.
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "source": "garmin_fit",
   "file": "2024-03-15-morning-run.fit",
   "processed_at": "2024-03-15T09:23:41Z",

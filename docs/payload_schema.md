@@ -8,7 +8,7 @@ These fields are always present.
 
 | Field | Type | Description |
 |---|---|---|
-| `schema_version` | string | Always `"1.0"` |
+| `schema_version` | string | Always `"1.1"` |
 | `source` | string | Always `"garmin_fit"` |
 | `file` | string | Source filename (e.g. `"my_run.fit"`) |
 | `processed_at` | string (ISO 8601) | UTC timestamp when the pipeline ran |
@@ -18,9 +18,17 @@ These fields are always present.
 
 Core metrics extracted from the FIT session message.
 
+`started_at` is UTC. `started_at_local` is the wall-clock time on the athlete's watch,
+derived from the activity message's own UTC offset so that activities recorded while
+travelling report their true local time. Use it for anything date-based: an evening
+activity in a negative-offset timezone falls on the *following* calendar day in UTC,
+which affects roughly a quarter of evening activities.
+
 | Field | Type | Unit | Nullable |
 |---|---|---|---|
-| `started_at` | string (ISO 8601) | — | no |
+| `started_at` | string (ISO 8601, UTC) | — | no |
+| `started_at_local` | string (ISO 8601, no offset) | — | yes — absent when the FIT file carries no usable `local_timestamp` |
+| `utc_offset_seconds` | int | s | yes — absent under the same condition as `started_at_local` |
 | `type` | string | — | no — always `"running"` in v1 |
 | `distance_meters` | float | m | yes |
 | `duration_seconds` | float | s | yes |
@@ -130,12 +138,14 @@ Device info fields are excluded by default (`EXCLUDE_DEVICE_INFO=true`).
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "source": "garmin_fit",
   "file": "morning_run.fit",
   "processed_at": "2024-01-15T12:34:56.789000+00:00",
   "activity": {
     "started_at": "2024-01-15T07:00:00+00:00",
+    "started_at_local": "2024-01-14T23:00:00",
+    "utc_offset_seconds": -28800,
     "type": "running",
     "distance_meters": 3156.5,
     "duration_seconds": 1127.2,

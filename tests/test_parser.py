@@ -1,10 +1,34 @@
 """Tests for fit_pipeline.parser."""
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from fit_pipeline.config import Config
 from fit_pipeline.exceptions import ParseError
-from fit_pipeline.parser import _running_cadence_spm, parse_fit_file
+from fit_pipeline.parser import (
+    _GARMIN_EPOCH,
+    _running_cadence_spm,
+    _utc_offset_seconds,
+    parse_fit_file,
+)
+
+
+def _activity_messages(utc: datetime, offset_hours: float) -> dict:
+    """Build a synthetic activity_mesgs payload with a given UTC offset.
+
+    Mirrors the SDK's real output shape: ``timestamp`` is a datetime while
+    ``local_timestamp`` is left as a raw Garmin-epoch int.
+    """
+    local = utc + timedelta(hours=offset_hours)
+    return {
+        "activity_mesgs": [
+            {
+                "timestamp": utc,
+                "local_timestamp": int((local - _GARMIN_EPOCH).total_seconds()),
+            }
+        ]
+    }
 
 
 class TestParseErrors:
@@ -148,3 +172,72 @@ class TestRunningCadenceConversion:
         assert cadence
         # All steady-state samples land in the spm range, not raw rpm
         assert max(cadence) > 120
+
+
+class TestUtcOffsetExtraction:
+    """The recording UTC offset comes from the activity message itself.
+
+    A UTC-only date misdates roughly a quarter of evening activities, so this
+    offset is what makes local dates correct — including while travelling.
+    """
+
+    def test_extracts_negative_offset(self) -> None:
+        utc = datetime(2024, 1, 15, 7, 0, tzinfo=timezone.utc)
+        assert _utc_offset_seconds(_activity_messages(utc, -8), "f.fit") == -8 * 3600
+
+    def test_extracts_positive_offset(self) -> None:
+        utc = datetime(2024, 6, 1, 12, 0, tzinfo=timezone.utc)
+        assert _utc_offset_seconds(_activity_messages(utc, 2), "f.fit") == 2 * 3600
+
+    def test_extracts_zero_offset(self) -> None:
+        utc = datetime(2024, 6, 1, 12, 0, tzinfo=timezone.utc)
+        assert _utc_offset_seconds(_activity_messages(utc, 0), "f.fit") == 0
+
+    def test_supports_fractional_hour_zones(self) -> None:
+        # Nepal is UTC+05:45 — a real whole-quarter-hour offset.
+        utc = datetime(2024, 6, 1, 12, 0, tzinfo=timezone.utc)
+        assert _utc_offset_seconds(_activity_messages(utc, 5.75), "f.fit") == 20700
+
+    def test_rounds_recording_jitter_to_quarter_hour(self) -> None:
+        utc = datetime(2024, 1, 15, 7, 0, tzinfo=timezone.utc)
+        messages = _activity_messages(utc, -7)
+        messages["activity_mesgs"][0]["local_timestamp"] += 37  # drift
+        assert _utc_offset_seconds(messages, "f.fit") == -7 * 3600
+
+    def test_rejects_implausible_offset(self, caplog) -> None:
+        utc = datetime(2024, 1, 15, 7, 0, tzinfo=timezone.utc)
+        messages = _activity_messages(utc, 24 * 800)  # anonymization artifact
+        assert _utc_offset_seconds(messages, "bogus.fit") is None
+        assert "implausible local_timestamp" in caplog.text
+
+    def test_returns_none_without_activity_message(self) -> None:
+        assert _utc_offset_seconds({}, "f.fit") is None
+        assert _utc_offset_seconds({"activity_mesgs": []}, "f.fit") is None
+
+    def test_returns_none_when_local_timestamp_absent(self) -> None:
+        utc = datetime(2024, 1, 15, 7, 0, tzinfo=timezone.utc)
+        assert _utc_offset_seconds({"activity_mesgs": [{"timestamp": utc}]}, "f.fit") is None
+
+    def test_returns_none_when_utc_timestamp_absent(self) -> None:
+        messages = {"activity_mesgs": [{"local_timestamp": 1064154939}]}
+        assert _utc_offset_seconds(messages, "f.fit") is None
+
+    def test_returns_none_when_local_timestamp_is_datetime(self) -> None:
+        # Guards the assumption that the SDK leaves local_date_time as an int.
+        utc = datetime(2024, 1, 15, 7, 0, tzinfo=timezone.utc)
+        messages = {"activity_mesgs": [{"timestamp": utc, "local_timestamp": utc}]}
+        assert _utc_offset_seconds(messages, "f.fit") is None
+
+
+class TestLocalStartTime:
+    """sample_run.fit carries an inconsistent local_timestamp (an artifact of
+    anonymization), so it exercises the sanity guard rather than the happy path.
+    """
+
+    def test_local_fields_absent_when_offset_unusable(
+        self, sample_fit_path, base_config: Config
+    ) -> None:
+        activity = parse_fit_file(sample_fit_path, base_config)["activity"]
+        assert "started_at" in activity
+        assert "started_at_local" not in activity
+        assert "utc_offset_seconds" not in activity

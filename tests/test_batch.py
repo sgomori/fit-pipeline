@@ -9,6 +9,7 @@ import pytest
 
 from fit_pipeline.batch import process_directory
 from fit_pipeline.config import Config
+from fit_pipeline.core import SCHEMA_VERSION
 from fit_pipeline.exceptions import DeliveryError, ParseError
 from tests.conftest import SAMPLE_FIT
 
@@ -75,7 +76,7 @@ class TestBatchWithFitFixture:
     def test_payload_has_schema_version(self, tmp_path: Path, base_config: Config) -> None:
         _copy_fixture_to(tmp_path)
         results = process_directory(tmp_path, [], base_config)
-        assert results[0]["schema_version"] == "1.0"
+        assert results[0]["schema_version"] == SCHEMA_VERSION
 
     def test_already_completed_files_not_reprocessed(
         self, tmp_path: Path, base_config: Config

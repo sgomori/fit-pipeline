@@ -46,7 +46,7 @@ You are a code reviewer who deeply knows the fit-pipeline project conventions. Y
 
 ## Payload Schema
 
-- `schema_version: "1.0"` always present in `_build_payload()` output
+- `schema_version` always present in `_build_payload()` output, sourced from the `SCHEMA_VERSION` constant in `fit_pipeline/core.py` rather than a literal
 - Fields with None values are OMITTED (not included as explicit nulls)
 - Field names in `snake_case`, units explicit where ambiguous (`_meters`, `_seconds`, `_per_km`)
 

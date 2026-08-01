@@ -16,7 +16,7 @@ The framework has three layers: parsing (via Garmin's official Python SDK), midd
 - **Middleware is opt-in.** The core pipeline works without StandardAnalyticsProcessor. Never make analytics mandatory.
 - **The framework is source-agnostic about its middleware.** The core never imports from `middleware/standard_analytics.py` directly — processors are registered by the user.
 - **Batch processing is restart-safe.** Completed files must be moved before attempting the next file, not after the batch finishes.
-- **Schema version is always present.** Every payload includes `"schema_version": "1.0"`. Do not omit it.
+- **Schema version is always present.** Every payload includes `"schema_version"` (currently `"1.1"`, defined as `SCHEMA_VERSION` in `fit_pipeline/core.py`). Do not omit it.
 
 ## Branching and commit workflow
 
