@@ -6,6 +6,7 @@ is attempted, making the batch safe to restart after interruption.
 
 import logging
 import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -69,7 +70,7 @@ def process_directory(
         payload = process_file(fit_path, processors, config)
         results.append(payload)
 
-        _move_to_completed(fit_path, completed_dir)
+        move_to_completed(fit_path, completed_dir, config, payload)
 
     logger.info(
         "Batch complete: %d/%d files processed", len(results), len(fit_files)
@@ -77,7 +78,61 @@ def process_directory(
     return results
 
 
-def _move_to_completed(fit_path: Path, completed_dir: Path) -> None:
+def _completed_filename(
+    fit_path: Path,
+    config: Config,
+    payload: dict[str, Any] | None,
+) -> str:
+    """Determine the name a processed file should take in completed/.
+
+    Renaming is opt-in via ``COMPLETED_FILENAME_FORMAT``. The original stem is
+    always appended, which keeps the source activity ID recoverable and makes
+    name collisions all but impossible.
+
+    The date comes from the activity's *local* start time. A UTC date would put
+    roughly a quarter of evening activities on the following day, so when local
+    time is unavailable the received name is kept rather than risk a wrong date.
+
+    Args:
+        fit_path: Path to the processed FIT file.
+        config: Loaded pipeline configuration.
+        payload: Delivered payload, or None when unavailable.
+
+    Returns:
+        The filename to use — the original name when no rename applies.
+    """
+    if not config.completed_filename_format:
+        return fit_path.name
+
+    started_local = (payload or {}).get("activity", {}).get("started_at_local")
+    if not started_local:
+        logger.warning(
+            "%s has no local start time; keeping the original filename. "
+            "The FIT file is missing a usable local_timestamp.",
+            fit_path.name,
+        )
+        return fit_path.name
+
+    try:
+        parsed = datetime.fromisoformat(started_local)
+    except ValueError:
+        logger.warning(
+            "%s has an unparseable local start time %r; keeping the original filename",
+            fit_path.name,
+            started_local,
+        )
+        return fit_path.name
+
+    prefix = parsed.strftime(config.completed_filename_format)
+    return f"{prefix}_{fit_path.stem}{fit_path.suffix}"
+
+
+def move_to_completed(
+    fit_path: Path,
+    completed_dir: Path,
+    config: Config | None = None,
+    payload: dict[str, Any] | None = None,
+) -> None:
     """Move a processed FIT file to the completed directory.
 
     A failure here is a WARNING, not fatal — the file was already
@@ -86,12 +141,31 @@ def _move_to_completed(fit_path: Path, completed_dir: Path) -> None:
     Args:
         fit_path: Path to the processed FIT file.
         completed_dir: Destination completed/ directory.
+        config: Loaded pipeline configuration. When None, no renaming occurs.
+        payload: Delivered payload, used to source the local start time.
     """
+    name = fit_path.name
+    if config is not None:
+        name = _completed_filename(fit_path, config, payload)
+
     try:
         completed_dir.mkdir(exist_ok=True)
-        dest = completed_dir / fit_path.name
+        dest = completed_dir / name
+
+        # Never overwrite: the existing file is a previously completed activity.
+        if name != fit_path.name and dest.exists():
+            logger.warning(
+                "completed/%s already exists; keeping the original filename for %s",
+                name,
+                fit_path.name,
+            )
+            dest = completed_dir / fit_path.name
+
         shutil.move(str(fit_path), str(dest))
-        logger.debug("Moved %s → completed/", fit_path.name)
+        if dest.name != fit_path.name:
+            logger.info("Moved %s → completed/%s", fit_path.name, dest.name)
+        else:
+            logger.debug("Moved %s → completed/", fit_path.name)
     except OSError as exc:
         logger.warning(
             "Could not move %s to completed/: %s — file was successfully processed",

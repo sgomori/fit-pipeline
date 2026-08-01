@@ -68,6 +68,12 @@ DRY_RUN=false
 # so `OUTPUT_FILE=  # comment` assigns the comment text as the value.
 OUTPUT_FILE=
 
+# Completed-file naming — strftime pattern applied to files moved into
+# completed/, using the activity's local start time. The original stem is
+# always appended. Empty (default) keeps the received filename.
+#   "%Y-%m-%d-%H%M"  ->  2026-07-25-1136_463372454903.fit
+COMPLETED_FILENAME_FORMAT=
+
 # Logging
 LOG_LEVEL=INFO
 LOG_FILE=pipeline.log        # leave empty to log to stdout only

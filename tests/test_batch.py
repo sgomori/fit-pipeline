@@ -7,11 +7,19 @@ from unittest.mock import patch
 
 import pytest
 
-from fit_pipeline.batch import process_directory
+from fit_pipeline.batch import _completed_filename, process_directory
 from fit_pipeline.config import Config
 from fit_pipeline.core import SCHEMA_VERSION
 from fit_pipeline.exceptions import DeliveryError, ParseError
 from tests.conftest import SAMPLE_FIT
+
+DATE_FORMAT = "%Y-%m-%d-%H%M"
+
+
+def _payload(started_at_local: str | None) -> dict:
+    """Minimal delivered payload carrying only the local start time."""
+    activity = {} if started_at_local is None else {"started_at_local": started_at_local}
+    return {"schema_version": SCHEMA_VERSION, "activity": activity}
 
 
 def _copy_fixture_to(dest_dir: Path, name: str = "run.fit") -> Path:
@@ -132,3 +140,95 @@ class TestBatchWithFitFixture:
             process_directory(tmp_path, [], base_config)
 
         assert call_count == 1, "Batch must halt after first failure"
+
+
+class TestCompletedFilename:
+    """Renaming is opt-in and must never invent a date it cannot verify."""
+
+    def test_original_name_kept_when_format_unset(self, base_config: Config) -> None:
+        name = _completed_filename(
+            Path("463372454903.fit"), base_config, _payload("2026-07-25T11:36:04")
+        )
+        assert name == "463372454903.fit"
+
+    def test_prefixes_local_date_and_preserves_stem(self, base_config: Config) -> None:
+        base_config.completed_filename_format = DATE_FORMAT
+        name = _completed_filename(
+            Path("463372454903.fit"), base_config, _payload("2026-07-25T11:36:04")
+        )
+        assert name == "2026-07-25-1136_463372454903.fit"
+
+    def test_uses_local_date_not_utc_date(self, base_config: Config) -> None:
+        # 17:08 local on the 29th is 00:08 UTC on the 30th. Naming from UTC
+        # would misdate this activity, which is the failure mode for ~23% of
+        # evening activities.
+        base_config.completed_filename_format = DATE_FORMAT
+        name = _completed_filename(
+            Path("act.fit"), base_config, _payload("2026-05-29T17:08:11")
+        )
+        assert name.startswith("2026-05-29-1708_")
+
+    def test_keeps_original_name_when_local_time_missing(
+        self, base_config: Config, caplog
+    ) -> None:
+        base_config.completed_filename_format = DATE_FORMAT
+        name = _completed_filename(Path("act.fit"), base_config, _payload(None))
+        assert name == "act.fit"
+        assert "no local start time" in caplog.text
+
+    def test_keeps_original_name_when_payload_missing(self, base_config: Config) -> None:
+        base_config.completed_filename_format = DATE_FORMAT
+        assert _completed_filename(Path("act.fit"), base_config, None) == "act.fit"
+
+    def test_keeps_original_name_when_local_time_unparseable(
+        self, base_config: Config, caplog
+    ) -> None:
+        base_config.completed_filename_format = DATE_FORMAT
+        name = _completed_filename(Path("act.fit"), base_config, _payload("not-a-date"))
+        assert name == "act.fit"
+        assert "unparseable local start time" in caplog.text
+
+
+class TestBatchRenaming:
+    """End-to-end renaming through process_directory."""
+
+    def test_file_renamed_in_completed(self, tmp_path: Path, base_config: Config) -> None:
+        _copy_fixture_to(tmp_path, "463372454903.fit")
+        base_config.completed_filename_format = DATE_FORMAT
+
+        with patch(
+            "fit_pipeline.batch.process_file",
+            return_value=_payload("2026-07-25T11:36:04"),
+        ):
+            process_directory(tmp_path, [], base_config)
+
+        assert (tmp_path / "completed" / "2026-07-25-1136_463372454903.fit").exists()
+        assert not (tmp_path / "completed" / "463372454903.fit").exists()
+
+    def test_default_leaves_filename_untouched(
+        self, tmp_path: Path, base_config: Config
+    ) -> None:
+        _copy_fixture_to(tmp_path, "463372454903.fit")
+        process_directory(tmp_path, [], base_config)
+        assert (tmp_path / "completed" / "463372454903.fit").exists()
+
+    def test_existing_target_is_not_overwritten(
+        self, tmp_path: Path, base_config: Config, caplog
+    ) -> None:
+        _copy_fixture_to(tmp_path, "463372454903.fit")
+        base_config.completed_filename_format = DATE_FORMAT
+
+        completed = tmp_path / "completed"
+        completed.mkdir()
+        clash = completed / "2026-07-25-1136_463372454903.fit"
+        clash.write_bytes(b"previously completed activity")
+
+        with patch(
+            "fit_pipeline.batch.process_file",
+            return_value=_payload("2026-07-25T11:36:04"),
+        ):
+            process_directory(tmp_path, [], base_config)
+
+        assert clash.read_bytes() == b"previously completed activity"
+        assert (completed / "463372454903.fit").exists()
+        assert "already exists" in caplog.text

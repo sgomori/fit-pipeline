@@ -57,6 +57,7 @@ CONFIG_ENV_VARS = (
     "STREAM_SAMPLE_RATE",
     "DRY_RUN",
     "OUTPUT_FILE",
+    "COMPLETED_FILENAME_FORMAT",
     "LOG_LEVEL",
     "LOG_FILE",
     "THRESHOLD_HR",
@@ -456,3 +457,55 @@ class TestEnvExampleFile:
         config = load_config(str(example), cli_dry_run=True)
         assert config.stream_sample_rate > 0
         assert config.trimp_gender in ("male", "female")
+
+
+class TestCompletedFilenameFormat:
+    """Bad patterns must fail at startup, not part-way through a batch."""
+
+    def test_unset_defaults_to_empty(
+        self, clean_env: None, empty_env_file: str
+    ) -> None:
+        config = load_config(empty_env_file, cli_dry_run=True)
+        assert config.completed_filename_format == ""
+
+    def test_valid_pattern_accepted(
+        self,
+        clean_env: None,
+        empty_env_file: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("COMPLETED_FILENAME_FORMAT", "%Y-%m-%d-%H%M")
+        config = load_config(empty_env_file, cli_dry_run=True)
+        assert config.completed_filename_format == "%Y-%m-%d-%H%M"
+
+    def test_path_separator_raises(
+        self,
+        clean_env: None,
+        empty_env_file: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("COMPLETED_FILENAME_FORMAT", "%Y/%m/%d")
+        with pytest.raises(ConfigError, match="path separators"):
+            load_config(empty_env_file, cli_dry_run=True)
+
+    def test_blank_pattern_treated_as_unset(
+        self,
+        clean_env: None,
+        empty_env_file: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("COMPLETED_FILENAME_FORMAT", "   ")
+        config = load_config(empty_env_file, cli_dry_run=True)
+        assert config.completed_filename_format == ""
+
+    def test_pattern_producing_empty_name_raises(self) -> None:
+        # load_config strips blank values, so this guard is reached only by a
+        # Config built in code.
+        config = Config(dry_run=True, completed_filename_format="   ")
+        with pytest.raises(ConfigError, match="non-empty filename"):
+            _validate(config)
+
+    def test_separator_rejected_by_validate(self) -> None:
+        config = Config(dry_run=True, completed_filename_format="%Y/%m")
+        with pytest.raises(ConfigError, match="path separators"):
+            _validate(config)

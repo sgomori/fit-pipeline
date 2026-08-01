@@ -10,7 +10,7 @@ These fields are always present.
 |---|---|---|
 | `schema_version` | string | Always `"1.1"` |
 | `source` | string | Always `"garmin_fit"` |
-| `file` | string | Source filename (e.g. `"my_run.fit"`) |
+| `file` | string | Filename as received (e.g. `"my_run.fit"`). Unaffected by `COMPLETED_FILENAME_FORMAT`, which renames the file on disk only; the original stem is preserved there so the two remain correlatable. |
 | `processed_at` | string (ISO 8601) | UTC timestamp when the pipeline ran |
 | `activity` | object | Activity summary — see below |
 

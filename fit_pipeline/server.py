@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
-from fit_pipeline.batch import _COMPLETED_DIRNAME, _move_to_completed, process_directory
+from fit_pipeline.batch import _COMPLETED_DIRNAME, move_to_completed, process_directory
 from fit_pipeline.config import Config
 from fit_pipeline.core import build_processor_chain, process_file
 from fit_pipeline.exceptions import (
@@ -210,7 +210,7 @@ async def upload_endpoint(
             },
         )
 
-    _move_to_completed(dest, upload_path / _COMPLETED_DIRNAME)
+    move_to_completed(dest, upload_path / _COMPLETED_DIRNAME, config, payload)
 
     return JSONResponse(
         content={

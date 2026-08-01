@@ -290,6 +290,29 @@ class TestUploadEndpoint:
         completed = Path(upload_config.upload_dir) / "completed" / "run.fit"
         assert completed.exists()
 
+    def test_uploaded_file_renamed_when_format_set(self, upload_config: Config) -> None:
+        # The upload path shares move_to_completed with the batch loop, so
+        # renaming must apply here too.
+        if not SAMPLE_FIT.exists():
+            pytest.skip("Sample FIT fixture not yet available")
+        upload_config.completed_filename_format = "%Y-%m-%d-%H%M"
+        application = create_app(upload_config, [])
+        client = TestClient(application, raise_server_exceptions=False)
+
+        with patch(
+            "fit_pipeline.server.process_file",
+            return_value={"activity": {"started_at_local": "2026-07-25T11:36:04"}},
+        ):
+            client.post(
+                "/upload",
+                files={"file": ("463372454903.fit", SAMPLE_FIT.read_bytes(), "application/octet-stream")},
+                headers=_AUTH_HEADERS,
+            )
+
+        completed = Path(upload_config.upload_dir) / "completed"
+        assert (completed / "2026-07-25-1136_463372454903.fit").exists()
+        assert not (completed / "463372454903.fit").exists()
+
     def test_process_error_returns_500(self, upload_client: TestClient) -> None:
         if not SAMPLE_FIT.exists():
             pytest.skip("Sample FIT fixture not yet available")

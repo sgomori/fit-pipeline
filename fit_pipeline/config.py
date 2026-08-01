@@ -8,6 +8,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from dotenv import load_dotenv
 
@@ -23,6 +24,9 @@ _BOOL_VALUES_HELP = "true/false, yes/no, on/off, or 1/0"
 
 # Logging levels configure_logging can resolve on the logging module.
 _LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
+# Arbitrary date used only to validate COMPLETED_FILENAME_FORMAT at startup.
+_EXAMPLE_DATETIME = datetime(2024, 1, 15, 7, 30, 0)
 
 
 @dataclass(frozen=True)
@@ -60,6 +64,9 @@ class Config:
     # Output mode
     dry_run: bool = False
     output_file: str = ""
+
+    # Completed-file naming (strftime pattern; empty = keep the received name)
+    completed_filename_format: str = ""
 
     # Logging
     log_level: str = "INFO"
@@ -200,6 +207,7 @@ def load_config(
         stream_sample_rate=_int("STREAM_SAMPLE_RATE", 3) or 3,
         dry_run=_bool("DRY_RUN", False),
         output_file=_str("OUTPUT_FILE"),
+        completed_filename_format=_str("COMPLETED_FILENAME_FORMAT"),
         log_level=_str("LOG_LEVEL", "INFO").upper(),
         log_file=_str("LOG_FILE"),
         threshold_hr=_int("THRESHOLD_HR"),
@@ -242,6 +250,26 @@ def _validate(config: Config) -> None:
             f"LOG_LEVEL must be one of {', '.join(_LOG_LEVELS)}, "
             f"got: {config.log_level!r}"
         )
+
+    if config.completed_filename_format:
+        # Resolve the pattern now so a bad one fails at startup rather than
+        # part-way through a batch, after files have already been moved.
+        try:
+            rendered = _EXAMPLE_DATETIME.strftime(config.completed_filename_format)
+        except ValueError as exc:
+            raise ConfigError(
+                f"COMPLETED_FILENAME_FORMAT is not a valid strftime pattern: {exc}"
+            ) from exc
+        if not rendered.strip():
+            raise ConfigError(
+                "COMPLETED_FILENAME_FORMAT must produce a non-empty filename, "
+                f"got: {config.completed_filename_format!r}"
+            )
+        if "/" in rendered or os.sep in rendered:
+            raise ConfigError(
+                "COMPLETED_FILENAME_FORMAT must not contain path separators, "
+                f"got: {config.completed_filename_format!r}"
+            )
 
     if missing:
         raise ConfigError(
