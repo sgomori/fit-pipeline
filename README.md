@@ -74,6 +74,10 @@ OUTPUT_FILE=
 #   "%Y-%m-%d-%H%M"  ->  2026-07-25-1136_463372454903.fit
 COMPLETED_FILENAME_FORMAT=
 
+# Set the completed file's mtime to the activity's start instant, so date-based
+# sorting in a file manager matches. Independent of the setting above.
+COMPLETED_SET_MTIME=false
+
 # Logging
 LOG_LEVEL=INFO
 LOG_FILE=pipeline.log        # leave empty to log to stdout only

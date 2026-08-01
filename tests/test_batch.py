@@ -2,6 +2,7 @@
 
 import shutil
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,9 +17,13 @@ from tests.conftest import SAMPLE_FIT
 DATE_FORMAT = "%Y-%m-%d-%H%M"
 
 
-def _payload(started_at_local: str | None) -> dict:
-    """Minimal delivered payload carrying only the local start time."""
-    activity = {} if started_at_local is None else {"started_at_local": started_at_local}
+def _payload(started_at_local: str | None, started_at: str | None = None) -> dict:
+    """Minimal delivered payload carrying only the activity start times."""
+    activity = {}
+    if started_at_local is not None:
+        activity["started_at_local"] = started_at_local
+    if started_at is not None:
+        activity["started_at"] = started_at
     return {"schema_version": SCHEMA_VERSION, "activity": activity}
 
 
@@ -232,3 +237,95 @@ class TestBatchRenaming:
         assert clash.read_bytes() == b"previously completed activity"
         assert (completed / "463372454903.fit").exists()
         assert "already exists" in caplog.text
+
+
+class TestCompletedMtime:
+    """Rewriting mtime is opt-in and never guesses an instant it cannot derive."""
+
+    UTC_START = "2026-07-25T18:36:04+00:00"
+
+    def _run(self, tmp_path: Path, config: Config, payload: dict) -> Path:
+        _copy_fixture_to(tmp_path, "463372454903.fit")
+        with patch("fit_pipeline.batch.process_file", return_value=payload):
+            process_directory(tmp_path, [], config)
+        return tmp_path / "completed" / "463372454903.fit"
+
+    def test_default_leaves_mtime_untouched(
+        self, tmp_path: Path, base_config: Config
+    ) -> None:
+        before = time.time()
+        dest = self._run(tmp_path, base_config, _payload(None, self.UTC_START))
+        # The copy's mtime is "now", not the 2026-07-25 activity instant.
+        assert dest.stat().st_mtime >= before - 5
+
+    def test_mtime_set_to_activity_start(
+        self, tmp_path: Path, base_config: Config
+    ) -> None:
+        base_config.completed_set_mtime = True
+        dest = self._run(tmp_path, base_config, _payload(None, self.UTC_START))
+
+        expected = datetime.fromisoformat(self.UTC_START).timestamp()
+        assert dest.stat().st_mtime == pytest.approx(expected, abs=1)
+
+    def test_mtime_is_the_utc_instant_not_the_local_clock(
+        self, tmp_path: Path, base_config: Config
+    ) -> None:
+        # started_at_local is 11:36 while the instant is 18:36 UTC. An mtime is
+        # a point in time, so the local field must not be the source.
+        base_config.completed_set_mtime = True
+        dest = self._run(
+            tmp_path, base_config, _payload("2026-07-25T11:36:04", self.UTC_START)
+        )
+
+        stored = datetime.fromtimestamp(dest.stat().st_mtime, tz=timezone.utc)
+        assert stored.hour == 18
+
+    def test_renaming_and_mtime_combine(
+        self, tmp_path: Path, base_config: Config
+    ) -> None:
+        base_config.completed_filename_format = DATE_FORMAT
+        base_config.completed_set_mtime = True
+        _copy_fixture_to(tmp_path, "463372454903.fit")
+
+        with patch(
+            "fit_pipeline.batch.process_file",
+            return_value=_payload("2026-07-25T11:36:04", self.UTC_START),
+        ):
+            process_directory(tmp_path, [], base_config)
+
+        renamed = tmp_path / "completed" / "2026-07-25-1136_463372454903.fit"
+        assert renamed.exists()
+        expected = datetime.fromisoformat(self.UTC_START).timestamp()
+        assert renamed.stat().st_mtime == pytest.approx(expected, abs=1)
+
+    def test_missing_start_time_leaves_mtime_untouched(
+        self, tmp_path: Path, base_config: Config, caplog
+    ) -> None:
+        base_config.completed_set_mtime = True
+        before = time.time()
+        dest = self._run(tmp_path, base_config, _payload(None))
+
+        assert dest.stat().st_mtime >= before - 5
+        assert "no start time" in caplog.text
+
+    def test_unparseable_start_time_leaves_mtime_untouched(
+        self, tmp_path: Path, base_config: Config, caplog
+    ) -> None:
+        base_config.completed_set_mtime = True
+        before = time.time()
+        dest = self._run(tmp_path, base_config, _payload(None, "not-a-date"))
+
+        assert dest.stat().st_mtime >= before - 5
+        assert "unparseable start time" in caplog.text
+
+    def test_naive_start_time_leaves_mtime_untouched(
+        self, tmp_path: Path, base_config: Config, caplog
+    ) -> None:
+        # Without an offset there is no absolute instant, and no home timezone
+        # is assumed — the same rule the renaming path follows.
+        base_config.completed_set_mtime = True
+        before = time.time()
+        dest = self._run(tmp_path, base_config, _payload(None, "2026-07-25T18:36:04"))
+
+        assert dest.stat().st_mtime >= before - 5
+        assert "without a UTC offset" in caplog.text

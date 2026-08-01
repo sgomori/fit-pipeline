@@ -5,6 +5,7 @@ is attempted, making the batch safe to restart after interruption.
 """
 
 import logging
+import os
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -127,6 +128,74 @@ def _completed_filename(
     return f"{prefix}_{fit_path.stem}{fit_path.suffix}"
 
 
+def _apply_activity_mtime(
+    dest: Path,
+    original_name: str,
+    payload: dict[str, Any] | None,
+) -> None:
+    """Set a completed file's mtime to the instant the activity started.
+
+    This is what makes ``ls -t`` and a file manager's date column agree with the
+    filename. It is opt-in via ``COMPLETED_SET_MTIME``, because it discards the
+    only record of when the file arrived.
+
+    The source is ``started_at``, the absolute UTC instant — not the local wall
+    clock. An mtime is a point in time, so the OS renders it in the *viewer's*
+    timezone: an activity recorded abroad shows a clock time that differs from
+    its filename by the travel offset, while still sorting correctly.
+
+    A failure here is a WARNING, not fatal — the file was already processed,
+    delivered, and moved.
+
+    Args:
+        dest: Path to the file in completed/.
+        original_name: Received filename, for log messages.
+        payload: Delivered payload, used to source the UTC start time.
+    """
+    started_at = (payload or {}).get("activity", {}).get("started_at")
+    if not started_at:
+        logger.warning(
+            "%s has no start time; leaving its modification time unchanged",
+            original_name,
+        )
+        return
+
+    try:
+        parsed = datetime.fromisoformat(started_at)
+    except ValueError:
+        logger.warning(
+            "%s has an unparseable start time %r; leaving its modification "
+            "time unchanged",
+            original_name,
+            started_at,
+        )
+        return
+
+    if parsed.tzinfo is None:
+        # No timezone means no absolute instant, and the framework does not
+        # assume one. Better an untouched mtime than a wrong one.
+        logger.warning(
+            "%s has a start time without a UTC offset (%r); leaving its "
+            "modification time unchanged",
+            original_name,
+            started_at,
+        )
+        return
+
+    epoch = parsed.timestamp()
+    try:
+        os.utime(dest, (epoch, epoch))
+    except OSError as exc:
+        logger.warning(
+            "Could not set the modification time on completed/%s: %s",
+            dest.name,
+            exc,
+        )
+        return
+
+    logger.debug("Set mtime on completed/%s to %s", dest.name, started_at)
+
+
 def move_to_completed(
     fit_path: Path,
     completed_dir: Path,
@@ -141,8 +210,9 @@ def move_to_completed(
     Args:
         fit_path: Path to the processed FIT file.
         completed_dir: Destination completed/ directory.
-        config: Loaded pipeline configuration. When None, no renaming occurs.
-        payload: Delivered payload, used to source the local start time.
+        config: Loaded pipeline configuration. When None, neither renaming nor
+            mtime rewriting occurs.
+        payload: Delivered payload, used to source the activity start times.
     """
     name = fit_path.name
     if config is not None:
@@ -166,6 +236,10 @@ def move_to_completed(
             logger.info("Moved %s → completed/%s", fit_path.name, dest.name)
         else:
             logger.debug("Moved %s → completed/", fit_path.name)
+
+        # Only after the move — utime must target the file's final location.
+        if config is not None and config.completed_set_mtime:
+            _apply_activity_mtime(dest, fit_path.name, payload)
     except OSError as exc:
         logger.warning(
             "Could not move %s to completed/: %s — file was successfully processed",

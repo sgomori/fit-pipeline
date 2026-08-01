@@ -58,6 +58,7 @@ CONFIG_ENV_VARS = (
     "DRY_RUN",
     "OUTPUT_FILE",
     "COMPLETED_FILENAME_FORMAT",
+    "COMPLETED_SET_MTIME",
     "LOG_LEVEL",
     "LOG_FILE",
     "THRESHOLD_HR",
@@ -504,6 +505,32 @@ class TestCompletedFilenameFormat:
         config = Config(dry_run=True, completed_filename_format="   ")
         with pytest.raises(ConfigError, match="non-empty filename"):
             _validate(config)
+
+    def test_set_mtime_defaults_to_false(
+        self, clean_env: None, empty_env_file: str
+    ) -> None:
+        config = load_config(empty_env_file, cli_dry_run=True)
+        assert config.completed_set_mtime is False
+
+    def test_set_mtime_enabled(
+        self,
+        clean_env: None,
+        empty_env_file: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("COMPLETED_SET_MTIME", "true")
+        config = load_config(empty_env_file, cli_dry_run=True)
+        assert config.completed_set_mtime is True
+
+    def test_set_mtime_rejects_typo(
+        self,
+        clean_env: None,
+        empty_env_file: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("COMPLETED_SET_MTIME", "yep")
+        with pytest.raises(ConfigError, match="COMPLETED_SET_MTIME"):
+            load_config(empty_env_file, cli_dry_run=True)
 
     def test_separator_rejected_by_validate(self) -> None:
         config = Config(dry_run=True, completed_filename_format="%Y/%m")

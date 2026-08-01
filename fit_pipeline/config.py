@@ -68,6 +68,9 @@ class Config:
     # Completed-file naming (strftime pattern; empty = keep the received name)
     completed_filename_format: str = ""
 
+    # Set the completed file's mtime to the activity's start instant
+    completed_set_mtime: bool = False
+
     # Logging
     log_level: str = "INFO"
     log_file: str = ""
@@ -208,6 +211,7 @@ def load_config(
         dry_run=_bool("DRY_RUN", False),
         output_file=_str("OUTPUT_FILE"),
         completed_filename_format=_str("COMPLETED_FILENAME_FORMAT"),
+        completed_set_mtime=_bool("COMPLETED_SET_MTIME", False),
         log_level=_str("LOG_LEVEL", "INFO").upper(),
         log_file=_str("LOG_FILE"),
         threshold_hr=_int("THRESHOLD_HR"),
