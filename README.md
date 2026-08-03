@@ -70,7 +70,8 @@ OUTPUT_FILE=
 
 # Completed-file naming — strftime pattern applied to files moved into
 # completed/, using the activity's local start time. The original stem is
-# always appended. Empty (default) keeps the received filename.
+# always appended. Empty (default) keeps the received filename. Renaming is
+# idempotent — reprocessing a renamed file will not add a second date.
 #   "%Y-%m-%d-%H%M"  ->  2026-07-25-1136_463372454903.fit
 COMPLETED_FILENAME_FORMAT=
 

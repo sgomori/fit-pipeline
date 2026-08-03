@@ -413,7 +413,7 @@ All configuration is via environment variables. A `.env` file is loaded automati
 | EXCLUDE_DEVICE_INFO | true | Exclude device serial/version fields |
 | EXCLUDE_FIELDS | (empty) | Comma-separated additional fields to exclude |
 | INCLUDE_STREAMS | true | Include time-series stream data in payload |
-| COMPLETED_FILENAME_FORMAT | _(empty)_ | strftime pattern for renaming files moved to `completed/`. Empty means keep the received name. |
+| COMPLETED_FILENAME_FORMAT | _(empty)_ | strftime pattern for renaming files moved to `completed/`. Empty means keep the received name. Idempotent — an already-prefixed file is not prefixed again. |
 | COMPLETED_SET_MTIME | `false` | Set a completed file's mtime to the activity's start instant (from `started_at`, UTC). Independent of the naming pattern. |
 | STREAM_SAMPLE_RATE | 3 | Stream sampling interval in seconds |
 | DRY_RUN | false | Parse and process without delivering |

@@ -193,6 +193,54 @@ class TestCompletedFilename:
         assert name == "act.fit"
         assert "unparseable local start time" in caplog.text
 
+    def test_already_prefixed_name_is_not_prefixed_again(
+        self, base_config: Config
+    ) -> None:
+        # Reprocessing a completed file must not stack a second date onto it.
+        base_config.completed_filename_format = DATE_FORMAT
+        name = _completed_filename(
+            Path("2026-07-25-1136_463372454903.fit"),
+            base_config,
+            _payload("2026-07-25T11:36:04"),
+        )
+        assert name == "2026-07-25-1136_463372454903.fit"
+
+    def test_renaming_is_idempotent(self, base_config: Config) -> None:
+        base_config.completed_filename_format = DATE_FORMAT
+        payload = _payload("2026-07-25T11:36:04")
+
+        once = _completed_filename(Path("463372454903.fit"), base_config, payload)
+        twice = _completed_filename(Path(once), base_config, payload)
+
+        assert twice == once
+
+    def test_prefix_from_a_different_date_is_still_prefixed(
+        self, base_config: Config
+    ) -> None:
+        # Only this activity's own prefix is recognised. A stem carrying some
+        # other date is a genuinely different name, and silently stripping it
+        # would be a worse failure than double-prefixing.
+        base_config.completed_filename_format = DATE_FORMAT
+        name = _completed_filename(
+            Path("2020-01-01-0700_463372454903.fit"),
+            base_config,
+            _payload("2026-07-25T11:36:04"),
+        )
+        assert name == "2026-07-25-1136_2020-01-01-0700_463372454903.fit"
+
+    def test_prefix_in_a_different_format_is_still_prefixed(
+        self, base_config: Config
+    ) -> None:
+        # The guard compares against the rendered pattern, not a parsed date,
+        # so a stem written by some other format is not treated as a prefix.
+        base_config.completed_filename_format = DATE_FORMAT
+        name = _completed_filename(
+            Path("20260725_463372454903.fit"),
+            base_config,
+            _payload("2026-07-25T11:36:04"),
+        )
+        assert name == "2026-07-25-1136_20260725_463372454903.fit"
+
 
 class TestBatchRenaming:
     """End-to-end renaming through process_directory."""
@@ -237,6 +285,27 @@ class TestBatchRenaming:
         assert clash.read_bytes() == b"previously completed activity"
         assert (completed / "463372454903.fit").exists()
         assert "already exists" in caplog.text
+
+    def test_reprocessing_a_renamed_file_does_not_duplicate_it(
+        self, tmp_path: Path, base_config: Config
+    ) -> None:
+        # A completed file fed back in — re-uploaded, or copied back to the
+        # watch directory. Double-prefixing would produce a name matching
+        # nothing in completed/, slipping past the no-overwrite guard and
+        # leaving two files for one activity.
+        _copy_fixture_to(tmp_path, "2026-07-25-1136_463372454903.fit")
+        base_config.completed_filename_format = DATE_FORMAT
+
+        with patch(
+            "fit_pipeline.batch.process_file",
+            return_value=_payload("2026-07-25T11:36:04"),
+        ):
+            process_directory(tmp_path, [], base_config)
+
+        completed = tmp_path / "completed"
+        assert [p.name for p in completed.iterdir()] == [
+            "2026-07-25-1136_463372454903.fit"
+        ]
 
 
 class TestCompletedMtime:

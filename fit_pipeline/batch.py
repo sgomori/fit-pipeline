@@ -94,6 +94,9 @@ def _completed_filename(
     roughly a quarter of evening activities on the following day, so when local
     time is unavailable the received name is kept rather than risk a wrong date.
 
+    Renaming is idempotent: a file already carrying its own start-date prefix is
+    left alone, so reprocessing one cannot stack a second date onto the name.
+
     Args:
         fit_path: Path to the processed FIT file.
         config: Loaded pipeline configuration.
@@ -125,6 +128,17 @@ def _completed_filename(
         return fit_path.name
 
     prefix = parsed.strftime(config.completed_filename_format)
+    if fit_path.stem.startswith(f"{prefix}_"):
+        # Reprocessing an already-renamed file. Prefixing again would stack a
+        # second date onto the name and, because the result differs from every
+        # name in completed/, would slip past the no-overwrite guard below and
+        # leave two files for one activity.
+        logger.debug(
+            "%s is already prefixed with its start date; keeping it",
+            fit_path.name,
+        )
+        return fit_path.name
+
     return f"{prefix}_{fit_path.stem}{fit_path.suffix}"
 
 
