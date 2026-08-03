@@ -221,6 +221,11 @@ def move_to_completed(
     A failure here is a WARNING, not fatal — the file was already
     successfully processed and delivered.
 
+    An existing file in completed/ is never overwritten. When renaming would
+    collide, the received filename is used instead; when that collides too —
+    or when no renaming was applied — the move is skipped and the file is left
+    where it is, since the alternative is destroying a completed activity.
+
     Args:
         fit_path: Path to the processed FIT file.
         completed_dir: Destination completed/ directory.
@@ -244,6 +249,19 @@ def move_to_completed(
                 fit_path.name,
             )
             dest = completed_dir / fit_path.name
+
+        # Falling back to the received name does not help when that is the name
+        # we were already going to use — an unrenamed file, or one whose prefix
+        # was left alone as already correct. shutil.move would clobber the
+        # completed activity silently, so leave the file where it is instead.
+        if dest.exists():
+            logger.warning(
+                "completed/%s already exists; leaving %s in place rather than "
+                "overwriting it — the file was successfully processed",
+                dest.name,
+                fit_path.name,
+            )
+            return
 
         shutil.move(str(fit_path), str(dest))
         if dest.name != fit_path.name:

@@ -274,6 +274,8 @@ After a file is successfully processed and delivered (200 response received or o
 - The subdirectory is created if it does not exist
 - The move is atomic where the OS supports it
 
+**Collisions.** An existing file in `completed/` is a previously completed activity and is never overwritten. When `COMPLETED_FILENAME_FORMAT` renaming would produce a name that is already taken, the file is moved under its received name instead. When that name is taken too — an unrenamed file, or one whose prefix the idempotence check left alone — there is no free name to fall back to, so the move is skipped and the file remains in the source directory with a WARNING. It will be reprocessed and redelivered on the next run until the collision is resolved manually; that is deliberate, as the alternative is destroying a completed activity silently.
+
 Files that fail processing remain in the source directory. The failure is logged with the filename and error. In batch mode, a failed file halts the batch — subsequent files are not processed.
 
 ### Restart safety
@@ -413,7 +415,7 @@ All configuration is via environment variables. A `.env` file is loaded automati
 | EXCLUDE_DEVICE_INFO | true | Exclude device serial/version fields |
 | EXCLUDE_FIELDS | (empty) | Comma-separated additional fields to exclude |
 | INCLUDE_STREAMS | true | Include time-series stream data in payload |
-| COMPLETED_FILENAME_FORMAT | _(empty)_ | strftime pattern for renaming files moved to `completed/`. Empty means keep the received name. Idempotent — an already-prefixed file is not prefixed again. |
+| COMPLETED_FILENAME_FORMAT | _(empty)_ | strftime pattern for renaming files moved to `completed/`. Empty means keep the received name. Idempotent — an already-prefixed file is not prefixed again. A file in `completed/` is never overwritten; see below. |
 | COMPLETED_SET_MTIME | `false` | Set a completed file's mtime to the activity's start instant (from `started_at`, UTC). Independent of the naming pattern. |
 | STREAM_SAMPLE_RATE | 3 | Stream sampling interval in seconds |
 | DRY_RUN | false | Parse and process without delivering |

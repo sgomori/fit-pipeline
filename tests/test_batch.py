@@ -303,9 +303,73 @@ class TestBatchRenaming:
             process_directory(tmp_path, [], base_config)
 
         completed = tmp_path / "completed"
-        assert [p.name for p in completed.iterdir()] == [
+        assert sorted(p.name for p in completed.iterdir()) == [
             "2026-07-25-1136_463372454903.fit"
         ]
+
+    def test_already_prefixed_file_does_not_overwrite_its_completed_twin(
+        self, tmp_path: Path, base_config: Config, caplog
+    ) -> None:
+        # The idempotent path returns the received name unchanged, so falling
+        # back to that name on a clash gains nothing. Skipping the move is the
+        # only option that does not destroy the completed activity.
+        _copy_fixture_to(tmp_path, "2026-07-25-1136_463372454903.fit")
+        base_config.completed_filename_format = DATE_FORMAT
+
+        completed = tmp_path / "completed"
+        completed.mkdir()
+        clash = completed / "2026-07-25-1136_463372454903.fit"
+        clash.write_bytes(b"previously completed activity")
+
+        with patch(
+            "fit_pipeline.batch.process_file",
+            return_value=_payload("2026-07-25T11:36:04"),
+        ):
+            process_directory(tmp_path, [], base_config)
+
+        assert clash.read_bytes() == b"previously completed activity"
+        assert (tmp_path / "2026-07-25-1136_463372454903.fit").exists()
+        assert "leaving" in caplog.text
+
+    def test_unrenamed_file_does_not_overwrite_its_completed_twin(
+        self, tmp_path: Path, base_config: Config, caplog
+    ) -> None:
+        # The same hole with no renaming configured at all.
+        _copy_fixture_to(tmp_path, "463372454903.fit")
+
+        completed = tmp_path / "completed"
+        completed.mkdir()
+        clash = completed / "463372454903.fit"
+        clash.write_bytes(b"previously completed activity")
+
+        process_directory(tmp_path, [], base_config)
+
+        assert clash.read_bytes() == b"previously completed activity"
+        assert (tmp_path / "463372454903.fit").exists()
+        assert "leaving" in caplog.text
+
+    def test_false_positive_prefix_does_not_overwrite_a_different_activity(
+        self, tmp_path: Path, base_config: Config, caplog
+    ) -> None:
+        # A stem the exporter — not this pipeline — already prefixed. It is
+        # skipped by the idempotence guard, so it must not clobber the
+        # unrelated activity already completed under that name.
+        _copy_fixture_to(tmp_path, "2026-07-25_run.fit")
+        base_config.completed_filename_format = "%Y-%m-%d"
+
+        completed = tmp_path / "completed"
+        completed.mkdir()
+        clash = completed / "2026-07-25_run.fit"
+        clash.write_bytes(b"a different activity")
+
+        with patch(
+            "fit_pipeline.batch.process_file",
+            return_value=_payload("2026-07-25T11:36:04"),
+        ):
+            process_directory(tmp_path, [], base_config)
+
+        assert clash.read_bytes() == b"a different activity"
+        assert (tmp_path / "2026-07-25_run.fit").exists()
 
 
 class TestCompletedMtime:
