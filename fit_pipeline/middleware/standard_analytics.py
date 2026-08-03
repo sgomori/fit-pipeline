@@ -141,6 +141,11 @@ class StandardAnalyticsProcessor(Processor):
             2. config.threshold_hr
             3. None → dependent metrics return null
 
+        A watch that has never auto-detected an LTHR writes the field as zero
+        rather than omitting it, so presence alone does not mean a usable value.
+        Zero has to fall through to the config fallback: taken literally it is a
+        divide-by-zero in hrTSS, which fails the whole activity.
+
         Args:
             activity: Session summary dict.
             zones_target: Extracted zones_target FIT message fields.
@@ -149,7 +154,7 @@ class StandardAnalyticsProcessor(Processor):
             LTHR in BPM, or None.
         """
         fit_lthr = zones_target.get("threshold_heart_rate")
-        if fit_lthr is not None:
+        if fit_lthr:
             logger.debug("Using LTHR from FIT file zones_target: %d bpm", fit_lthr)
             return int(fit_lthr)
 

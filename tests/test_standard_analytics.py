@@ -415,6 +415,51 @@ class TestResolveMaxHr:
         assert proc._resolve_max_hr({}) is None
 
 
+class TestResolveLthr:
+    def test_fit_value_takes_priority_over_config(self, analytics_config: Config) -> None:
+        analytics_config.threshold_hr = 150
+        proc = _make_processor(analytics_config)
+        assert proc._resolve_lthr({}, {"threshold_heart_rate": 168}) == 168
+
+    def test_falls_back_to_config(self, analytics_config: Config) -> None:
+        analytics_config.threshold_hr = 162
+        proc = _make_processor(analytics_config)
+        assert proc._resolve_lthr({}, {}) == 162
+
+    def test_none_when_neither_config_nor_fit(self, analytics_config: Config) -> None:
+        analytics_config.threshold_hr = None
+        proc = _make_processor(analytics_config)
+        assert proc._resolve_lthr({}, {}) is None
+
+    def test_zero_fit_value_falls_through_to_config(self, analytics_config: Config) -> None:
+        # A watch that has never auto-detected an LTHR writes the field as zero
+        # rather than omitting it. Honouring it divides by zero in hrTSS.
+        analytics_config.threshold_hr = 162
+        proc = _make_processor(analytics_config)
+        assert proc._resolve_lthr({}, {"threshold_heart_rate": 0}) == 162
+
+    def test_zero_fit_value_without_config_yields_none(self, analytics_config: Config) -> None:
+        analytics_config.threshold_hr = None
+        proc = _make_processor(analytics_config)
+        assert proc._resolve_lthr({}, {"threshold_heart_rate": 0}) is None
+
+    def test_zero_lthr_leaves_hr_metrics_null_instead_of_failing(
+        self, analytics_config: Config
+    ) -> None:
+        # The whole point of the fallback: the activity still processes, with
+        # the HR-derived metrics explicitly null.
+        analytics_config.threshold_hr = None
+        payload = _make_payload(
+            duration_s=3600,
+            avg_hr=150,
+            hr=[150] * 60,
+            zones_target_lthr=0,
+        )
+        result = _make_processor(analytics_config).process(payload)
+        assert result["computed_metrics"]["tss_score"] is None
+        assert result["computed_metrics"]["hr_zone_distribution"] is None
+
+
 # ---------------------------------------------------------------------------
 # Grade-adjusted pace
 # ---------------------------------------------------------------------------
