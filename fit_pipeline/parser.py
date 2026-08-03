@@ -372,8 +372,19 @@ def _extract_zones_target(messages: dict[str, Any]) -> dict[str, Any]:
 
     thr = zt.get("threshold_heart_rate")
     if thr is not None:
+        # Recorded as-is either way — the parser reports what the file says and
+        # leaves the judgement to the analytics layer. Only the announcement is
+        # withheld: a zero means the watch never derived a threshold, and saying
+        # "LTHR from FIT file: 0 bpm" at INFO reads as a value that was found.
         result["threshold_heart_rate"] = thr
-        logger.info("LTHR from FIT file zones_target: %d bpm", thr)
+        if thr > 0:
+            logger.info("LTHR from FIT file zones_target: %d bpm", thr)
+        else:
+            logger.debug(
+                "zones_target reports threshold_heart_rate %d — no LTHR has been "
+                "auto-detected on this device",
+                thr,
+            )
 
     ftp = zt.get("functional_threshold_power")
     if ftp is not None:

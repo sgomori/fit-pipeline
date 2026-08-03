@@ -10,10 +10,28 @@ import math
 import statistics
 from typing import Any
 
-from fit_pipeline.config import Config
+from fit_pipeline.config import _MAX_PLAUSIBLE_HR, _MIN_PLAUSIBLE_HR, Config
 from fit_pipeline.processor import Processor
 
 logger = logging.getLogger(__name__)
+
+
+def _is_plausible_hr(value: float) -> bool:
+    """Return whether a heart rate could belong to a human.
+
+    Applied to device-reported threshold and maximum heart rates, which are
+    profile constants rather than measurements: a watch that has never derived
+    one reports 0 instead of omitting the field, and a partially initialised
+    profile can report a small non-zero value. Neither is distinguishable from
+    a real reading by presence alone.
+
+    Args:
+        value: Heart rate in BPM.
+
+    Returns:
+        True when the value falls within the plausible band.
+    """
+    return _MIN_PLAUSIBLE_HR <= value <= _MAX_PLAUSIBLE_HR
 
 # LTHR-based zone upper boundaries (as % of LTHR), following Joe Friel's
 # published running zones compressed to 5 buckets:
@@ -143,8 +161,11 @@ class StandardAnalyticsProcessor(Processor):
 
         A watch that has never auto-detected an LTHR writes the field as zero
         rather than omitting it, so presence alone does not mean a usable value.
-        Zero has to fall through to the config fallback: taken literally it is a
-        divide-by-zero in hrTSS, which fails the whole activity.
+        An implausible value has to fall through to the config fallback: zero
+        taken literally is a divide-by-zero in hrTSS that fails the whole
+        activity, and a small non-zero value is worse still — it inflates
+        tss_score by orders of magnitude and reports every sample as zone 5,
+        with nothing to signal that the number is wrong.
 
         Args:
             activity: Session summary dict.
@@ -154,16 +175,25 @@ class StandardAnalyticsProcessor(Processor):
             LTHR in BPM, or None.
         """
         fit_lthr = zones_target.get("threshold_heart_rate")
-        if fit_lthr:
-            logger.debug("Using LTHR from FIT file zones_target: %d bpm", fit_lthr)
-            return int(fit_lthr)
+        if fit_lthr is not None:
+            if _is_plausible_hr(fit_lthr):
+                logger.debug("Using LTHR from FIT file zones_target: %d bpm", fit_lthr)
+                return int(fit_lthr)
+            logger.info(
+                "Ignoring implausible LTHR from the FIT file: %s bpm (expected "
+                "%d-%d). A watch that has never auto-detected a threshold reports "
+                "0 rather than omitting it. Falling back to THRESHOLD_HR.",
+                fit_lthr,
+                _MIN_PLAUSIBLE_HR,
+                _MAX_PLAUSIBLE_HR,
+            )
 
         if self.config.threshold_hr is not None:
             logger.debug("Using LTHR from config: %d bpm", self.config.threshold_hr)
             return self.config.threshold_hr
 
         logger.warning(
-            "No LTHR available (zones_target absent, THRESHOLD_HR not configured). "
+            "No usable LTHR (none in the FIT file, THRESHOLD_HR not configured). "
             "tss_score and hr_zone_distribution will be null."
         )
         return None
@@ -180,6 +210,11 @@ class StandardAnalyticsProcessor(Processor):
             2. zones_target.max_heart_rate (Garmin profile maximum)
             3. None → TRIMP returns null
 
+        An implausible profile maximum is ignored for the same reason as an
+        implausible LTHR — see ``_resolve_lthr``. A zero here does not divide
+        by zero, but it does reach the TRIMP guard as a negative HR reserve,
+        which reports the failure against RESTING_HR rather than the real cause.
+
         Args:
             zones_target: Extracted zones_target FIT message fields.
 
@@ -192,8 +227,17 @@ class StandardAnalyticsProcessor(Processor):
 
         fit_max = zones_target.get("max_heart_rate")
         if fit_max is not None:
-            logger.debug("Using max HR from FIT file zones_target: %d bpm", fit_max)
-            return int(fit_max)
+            if _is_plausible_hr(fit_max):
+                logger.debug("Using max HR from FIT file zones_target: %d bpm", fit_max)
+                return int(fit_max)
+            logger.info(
+                "Ignoring implausible max HR from the FIT file: %s bpm (expected "
+                "%d-%d) — the watch profile has no maximum set. trimp will be "
+                "null unless MAX_HR is configured.",
+                fit_max,
+                _MIN_PLAUSIBLE_HR,
+                _MAX_PLAUSIBLE_HR,
+            )
 
         return None
 

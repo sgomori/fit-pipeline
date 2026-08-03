@@ -460,6 +460,51 @@ class TestEnvExampleFile:
         assert config.trimp_gender in ("male", "female")
 
 
+class TestPlausibleHeartRates:
+    """Implausible THRESHOLD_HR / MAX_HR must fail at startup."""
+
+    @pytest.mark.parametrize("name", ["THRESHOLD_HR", "MAX_HR"])
+    @pytest.mark.parametrize("value", ["0", "1", "79", "221", "-5"])
+    def test_implausible_value_raises(
+        self,
+        clean_env: None,
+        empty_env_file: str,
+        monkeypatch: pytest.MonkeyPatch,
+        name: str,
+        value: str,
+    ) -> None:
+        # A zero reaches hrTSS as a divide-by-zero; a small non-zero value
+        # silently inflates every downstream load metric instead.
+        monkeypatch.setenv(name, value)
+        with pytest.raises(ConfigError, match=f"{name} must be between"):
+            load_config(empty_env_file, cli_dry_run=True)
+
+    @pytest.mark.parametrize("name", ["THRESHOLD_HR", "MAX_HR"])
+    @pytest.mark.parametrize("value", ["80", "168", "220"])
+    def test_plausible_value_accepted(
+        self,
+        clean_env: None,
+        empty_env_file: str,
+        monkeypatch: pytest.MonkeyPatch,
+        name: str,
+        value: str,
+    ) -> None:
+        monkeypatch.setenv(name, value)
+        config = load_config(empty_env_file, cli_dry_run=True)
+        assert getattr(config, name.lower()) == int(value)
+
+    def test_resting_hr_is_not_range_checked(
+        self,
+        clean_env: None,
+        empty_env_file: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Resting HR has a different plausible range and is left alone.
+        monkeypatch.setenv("RESTING_HR", "50")
+        config = load_config(empty_env_file, cli_dry_run=True)
+        assert config.resting_hr == 50
+
+
 class TestCompletedFilenameFormat:
     """Bad patterns must fail at startup, not part-way through a batch."""
 

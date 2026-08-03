@@ -422,8 +422,8 @@ All configuration is via environment variables. A `.env` file is loaded automati
 | OUTPUT_FILE | (empty) | Write payload to file instead of posting |
 | LOG_LEVEL | INFO | Logging level (DEBUG, INFO, WARNING, ERROR) |
 | LOG_FILE | (empty) | Log file path; logs to stdout if empty |
-| THRESHOLD_HR | (empty) | Static LTHR fallback; per-activity FIT value takes priority |
-| MAX_HR | (empty) | Max HR for TRIMP; overrides the FIT profile max (zones_target) |
+| THRESHOLD_HR | (empty) | Static LTHR fallback; per-activity FIT value takes priority. Must be 80–220 BPM |
+| MAX_HR | (empty) | Max HR for TRIMP; overrides the FIT profile max (zones_target). Must be 80–220 BPM |
 | RESTING_HR | (empty) | Resting HR for TRIMP; null TRIMP if absent |
 | TRIMP_GENDER | male | Banister TRIMP coefficient set (male/female) |
 | HR_ZONE_1 through HR_ZONE_5 | (derived) | HR zone upper boundaries in BPM; overrides LTHR % calculation |
@@ -463,7 +463,7 @@ Unresolved — surface before deciding silently:
 
 **Resolved** (do not reopen):
 - Processor registration: `processors.py` Python config module
-- LTHR source: per-activity FIT `zones_target` → `THRESHOLD_HR` env var → null + WARNING
+- LTHR source: per-activity FIT `zones_target` → `THRESHOLD_HR` env var → null + WARNING. A FIT value outside 80–220 BPM is treated as absent (a watch reports `0` when it has never derived one)
 - HR zone model: LTHR-based, Friel running boundaries compressed to 5 buckets (not max-HR-based, not Garmin's boundaries)
 - Aerobic decoupling: speed/HR ratio, not pace/HR
 - TRIMP: Banister formula with gender-selectable coefficients

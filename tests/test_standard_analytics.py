@@ -5,6 +5,7 @@ Integration tests against the real FIT fixture are skipped if it's absent.
 """
 
 import json
+import logging
 import math
 
 import pytest
@@ -414,6 +415,26 @@ class TestResolveMaxHr:
         proc = _make_processor(analytics_config)
         assert proc._resolve_max_hr({}) is None
 
+    @pytest.mark.parametrize("fit_max", [0, 1, 40, 260])
+    def test_implausible_fit_value_is_ignored(
+        self, analytics_config: Config, fit_max: int, caplog
+    ) -> None:
+        # Same failure mode as a zero LTHR: the profile maximum was never set.
+        # A zero does not divide by zero here, but it reaches the TRIMP guard as
+        # a negative HR reserve, which blames RESTING_HR for the wrong reason.
+        analytics_config.max_hr = None
+        proc = _make_processor(analytics_config)
+        with caplog.at_level(logging.INFO):
+            assert proc._resolve_max_hr({"max_heart_rate": fit_max}) is None
+        assert "implausible max HR" in caplog.text
+
+    def test_implausible_fit_value_falls_back_to_config(
+        self, analytics_config: Config
+    ) -> None:
+        analytics_config.max_hr = 185
+        proc = _make_processor(analytics_config)
+        assert proc._resolve_max_hr({"max_heart_rate": 0}) == 185
+
 
 class TestResolveLthr:
     def test_fit_value_takes_priority_over_config(self, analytics_config: Config) -> None:
@@ -447,17 +468,56 @@ class TestResolveLthr:
         self, analytics_config: Config
     ) -> None:
         # The whole point of the fallback: the activity still processes, with
-        # the HR-derived metrics explicitly null.
+        # the HR-derived metrics explicitly null. The non-HR metrics are
+        # asserted too — nulling everything would also satisfy the first two.
         analytics_config.threshold_hr = None
         payload = _make_payload(
             duration_s=3600,
             avg_hr=150,
             hr=[150] * 60,
+            speed_m_per_s=[3.0] * 60,
             zones_target_lthr=0,
         )
-        result = _make_processor(analytics_config).process(payload)
-        assert result["computed_metrics"]["tss_score"] is None
-        assert result["computed_metrics"]["hr_zone_distribution"] is None
+        metrics = _make_processor(analytics_config).process(payload)["computed_metrics"]
+        assert metrics["tss_score"] is None
+        assert metrics["hr_zone_distribution"] is None
+        assert metrics["cardiac_drift_bpm"] is not None
+        assert metrics["pace_zone_distribution"] is not None
+
+    @pytest.mark.parametrize("fit_lthr", [1, 40, 79, 221, 260])
+    def test_implausible_fit_value_falls_through_to_config(
+        self, analytics_config: Config, fit_lthr: int, caplog
+    ) -> None:
+        # A small non-zero value is the dangerous case: it does not crash, it
+        # silently inflates tss_score by orders of magnitude and reports every
+        # sample as zone 5.
+        analytics_config.threshold_hr = 162
+        proc = _make_processor(analytics_config)
+        with caplog.at_level(logging.INFO):
+            assert proc._resolve_lthr({}, {"threshold_heart_rate": fit_lthr}) == 162
+        assert "implausible LTHR" in caplog.text
+
+    def test_implausible_fit_value_without_config_yields_none(
+        self, analytics_config: Config
+    ) -> None:
+        analytics_config.threshold_hr = None
+        proc = _make_processor(analytics_config)
+        assert proc._resolve_lthr({}, {"threshold_heart_rate": 1}) is None
+
+    def test_boundary_values_are_accepted(self, analytics_config: Config) -> None:
+        proc = _make_processor(analytics_config)
+        assert proc._resolve_lthr({}, {"threshold_heart_rate": 80}) == 80
+        assert proc._resolve_lthr({}, {"threshold_heart_rate": 220}) == 220
+
+    def test_missing_lthr_logs_a_warning(self, analytics_config: Config, caplog) -> None:
+        # The resolved decision in CLAUDE.md names the WARNING as part of the
+        # contract, not just the null metrics.
+        analytics_config.threshold_hr = None
+        proc = _make_processor(analytics_config)
+        with caplog.at_level(logging.WARNING):
+            assert proc._resolve_lthr({}, {}) is None
+        assert "No usable LTHR" in caplog.text
+        assert "tss_score and hr_zone_distribution will be null" in caplog.text
 
 
 # ---------------------------------------------------------------------------

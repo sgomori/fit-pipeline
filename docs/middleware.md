@@ -46,7 +46,9 @@ See [Analytics Metrics](#analytics-metrics) below for full formula documentation
 
 1. `zones_target_mesgs.threshold_heart_rate` from the FIT file (Garmin auto-detects from threshold runs)
 2. `THRESHOLD_HR` environment variable
-3. Neither present → `tss_score` and `hr_zone_distribution` return `null`; WARNING logged
+3. Neither usable → `tss_score` and `hr_zone_distribution` return `null`; WARNING logged
+
+A FIT value outside 80–220 BPM is treated as absent and skipped at step 1, with an INFO log naming the value. A watch that has never auto-detected a threshold reports `0` rather than omitting the field, and presence alone therefore does not mean a usable reading — taken literally, `0` is a divide-by-zero in hrTSS and a small non-zero value inflates `tss_score` by orders of magnitude while reporting every sample as zone 5. The same band applies to `zones_target.max_heart_rate` for TRIMP. `THRESHOLD_HR` and `MAX_HR` are validated against it at startup and raise `ConfigError`.
 
 ### FieldFilterProcessor
 

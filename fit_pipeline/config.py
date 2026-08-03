@@ -28,6 +28,14 @@ _LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 # Arbitrary date used only to validate COMPLETED_FILENAME_FORMAT at startup.
 _EXAMPLE_DATETIME = datetime(2024, 1, 15, 7, 30, 0)
 
+# Plausible bounds, in BPM, for a lactate threshold or a physiological maximum
+# heart rate. Wide enough to admit genuine outliers at both ends, narrow enough
+# to reject a corrupt or never-initialised device field — a watch that has not
+# auto-detected a threshold reports 0 rather than omitting it. Resting HR is
+# deliberately not checked against these; its plausible range is different.
+_MIN_PLAUSIBLE_HR = 80
+_MAX_PLAUSIBLE_HR = 220
+
 
 @dataclass(frozen=True)
 class WebhookDestination:
@@ -273,6 +281,19 @@ def _validate(config: Config) -> None:
             raise ConfigError(
                 "COMPLETED_FILENAME_FORMAT must not contain path separators, "
                 f"got: {config.completed_filename_format!r}"
+            )
+
+    # Caught at startup rather than mid-batch: a zero here reaches hrTSS as a
+    # divide-by-zero, and a small non-zero value silently inflates every
+    # downstream load metric instead of failing.
+    for name, value in (
+        ("THRESHOLD_HR", config.threshold_hr),
+        ("MAX_HR", config.max_hr),
+    ):
+        if value is not None and not _MIN_PLAUSIBLE_HR <= value <= _MAX_PLAUSIBLE_HR:
+            raise ConfigError(
+                f"{name} must be between {_MIN_PLAUSIBLE_HR} and "
+                f"{_MAX_PLAUSIBLE_HR} BPM, got: {value}"
             )
 
     if missing:
