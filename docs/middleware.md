@@ -25,7 +25,7 @@ Processors run in order. Each processor receives the output of the previous one.
 
 `fit_pipeline/middleware/standard_analytics.py`
 
-Computes 9 metrics from the parsed streams and activity summary. All metrics are written to `data["computed_metrics"]`. A missing required stream results in `null` for that metric — it never raises an exception.
+Computes 11 metrics from the parsed streams and activity summary. All metrics are written to `data["computed_metrics"]`. A missing required stream results in `null` for that metric — it never raises an exception.
 
 See [Analytics Metrics](#analytics-metrics) below for full formula documentation.
 
@@ -34,13 +34,15 @@ See [Analytics Metrics](#analytics-metrics) below for full formula documentation
 | Variable | Used by |
 |---|---|
 | `THRESHOLD_HR` | TSS (hrTSS), HR zone distribution |
+| `THRESHOLD_PACE` | rTSS (functional threshold pace, s/km) |
 | `MAX_HR` | TRIMP (physiological ceiling; overrides the FIT profile max) |
 | `RESTING_HR` | TRIMP |
 | `TRIMP_GENDER` | TRIMP coefficient selection (`male`/`female`) |
 | `PACE_ZONE_EASY` | Pace zone distribution (upper boundary, s/km) |
 | `PACE_ZONE_MODERATE` | Pace zone distribution (upper boundary, s/km) |
 | `PACE_ZONE_THRESHOLD` | Pace zone distribution (upper boundary, s/km) |
-| `HR_ZONE_1` – `HR_ZONE_5` | HR zone overrides (fixed BPM upper boundaries) |
+| `HR_ZONE_1` – `HR_ZONE_4` | HR zone overrides (fixed BPM upper boundaries; all four required) |
+| `STREAM_SAMPLE_RATE` | rTSS (converts the 30-second smoothing window into samples) |
 
 **LTHR resolution order (per activity):**
 
@@ -54,13 +56,15 @@ A FIT value outside 80–220 BPM is treated as absent and skipped at step 1, wit
 
 `fit_pipeline/middleware/field_filter.py`
 
-Removes fields from `data["activity"]` based on the `EXCLUDE_FIELDS` config variable. Useful for stripping proprietary or unwanted fields before delivery.
+Removes fields from both `data["activity"]` and `data["streams"]` based on the `EXCLUDE_FIELDS` config variable. Useful for stripping proprietary or unwanted fields before delivery.
+
+Note that the parser has already applied `EXCLUDE_FIELDS` to the stream keys by the time this processor runs — this pass catches the activity summary, and re-applies to streams for any keys a preceding processor added.
 
 **Configuration env vars used:**
 
 | Variable | Description |
 |---|---|
-| `EXCLUDE_FIELDS` | Comma-separated list of field names to remove from `activity` |
+| `EXCLUDE_FIELDS` | Comma-separated list of field names to remove from `activity` and `streams` |
 
 ## Writing a Custom Processor
 
@@ -106,15 +110,18 @@ Measures cardiovascular drift across the activity. Uses speed/HR ratio (Training
 - `eff = avg_speed_m_per_min / avg_hr` for each half
 - `decoupling = (eff_h1 - eff_h2) / eff_h1 × 100`
 - Positive = HR drifted up relative to speed; < 5% indicates aerobic efficiency
-- Requires: pace stream + heart_rate stream
+- Requires: pace stream + heart_rate stream, with ≥ 4 paired records
 
 ### efficiency_factor
 
 Speed-per-heartbeat efficiency ratio. Higher = more efficient aerobic system.
 
 - `EF = avg_speed_m_per_min / avg_heart_rate`
+- Average speed is the arithmetic (time-weighted) mean of the per-record speed samples, not the harmonic mean of pace
+- Stopped and near-stopped samples (≤ 0.5 m/s) are excluded
+- No grade adjustment — see `grade_adjusted_efficiency_factor`
 - Expected range: ~1.2–1.8 for trained runners
-- Requires: pace stream + heart_rate stream
+- Requires: speed stream + heart_rate stream
 
 ### cardiac_drift_bpm
 
@@ -134,14 +141,27 @@ Heart-rate-based Training Stress Score. Quantifies training load relative to thr
 - `hrTSS = (duration_seconds × IF²) / 3600 × 100`
 - Null if LTHR is unavailable
 - Requires: LTHR (see resolution order above)
+- Uses *average* HR, so it cannot reward variability — see `rtss_score` for the pace-native score
+
+### rtss_score (rTSS)
+
+Run Training Stress Score from Normalized Graded Pace. Because NGP weights surges, rTSS captures the intensity distribution that hrTSS averages away.
+
+- Grade-adjusted speed is smoothed over a 30-second rolling window (`30 / STREAM_SAMPLE_RATE` samples, minimum 1)
+- `NGP_speed` = 4th root of the mean of the rolling values raised to the 4th power
+- `threshold_speed = 1000 / THRESHOLD_PACE` (m/s)
+- `IF = NGP_speed / threshold_speed`
+- `rTSS = (duration_seconds × IF²) / 3600 × 100`
+- Null if `THRESHOLD_PACE` is not configured; hrTSS remains the HR-only fallback
+- Requires: speed + altitude + distance streams, and `THRESHOLD_PACE`
 
 ### pace_cv
 
 Coefficient of variation of pace — measures pacing consistency. (Not the Coggan Variability Index.)
 
-- `pace_cv = std(pace_s_per_km) / mean(pace_s_per_km)`
+- `pace_cv = std(pace_s_per_km) / mean(pace_s_per_km)` (stopped samples excluded)
 - Lower = more consistent pacing
-- Requires: pace stream
+- Requires: pace stream, with ≥ 2 moving records
 
 ### hr_zone_distribution
 
@@ -152,12 +172,12 @@ Percentage of time spent in each of 5 HR zones using the Friel LTHR-based model.
 | Zone | Upper Boundary | Description |
 |------|----------------|-------------|
 | 1 | < 85% | Active Recovery |
-| 2 | 85–92% | Aerobic Base |
-| 3 | 93–99% | Tempo |
-| 4 | 100–105% | Threshold |
-| 5 | > 105% | VO2max / Neuromuscular |
+| 2 | 85–89% | Aerobic Base |
+| 3 | 90–99% | Tempo |
+| 4 | 100–106% | Threshold |
+| 5 | > 106% | VO2max / Neuromuscular |
 
-Override with fixed BPM via `HR_ZONE_1` through `HR_ZONE_5` env vars (upper boundary of each zone).
+Override with fixed BPM via the `HR_ZONE_1` through `HR_ZONE_4` env vars (upper boundary of each zone). All four must be set — a partial override is ignored and every boundary falls back to the LTHR percentages, so the zones always come from one consistent source. Zone 5 is unbounded above, so `HR_ZONE_5` is loaded but never read.
 
 - Null if LTHR is unavailable
 - Requires: heart_rate stream + LTHR
@@ -189,17 +209,18 @@ Banister Training Impulse — load metric based on HR reserve.
 
 ### avg_grade_adjusted_pace_per_km / grade_adjusted_efficiency_factor
 
-Grade-Adjusted Pace normalizes pace for elevation to compare flat-equivalent effort.
+Grade-Adjusted Pace normalizes pace for elevation to compare flat-equivalent effort. The adjustment is applied to *speed*, per record, against the previous sample:
 
-Per-record adjustment:
 - `grade_pct = (alt_diff_m / dist_diff_m) × 100`
-- Uphill factor: `1 + 0.033 × grade_pct`
-- Downhill factor: `1 - 0.018 × |grade_pct|` (capped at −15%)
-- `gap_record = actual_pace_s_per_km / adjustment_factor`
+- Uphill (`grade_pct ≥ 0`) factor: `1 + 0.033 × grade_pct`
+- Downhill factor: `1 - 0.018 × |grade_pct|`, with the grade first clamped to a −15% floor
+- The factor is floored at 0.5 as a sanity guard on extreme uphill grades
+- `gap_speed = speed_m_per_s × factor`
+- Samples with no distance gain (`dist_diff ≤ 0`), and the first sample, are carried through unadjusted
 
 Outputs:
-- `avg_grade_adjusted_pace_per_km`: mean of all per-record GAP values
-- `grade_adjusted_efficiency_factor`: `avg_speed_from_gap / avg_hr`
+- `avg_grade_adjusted_pace_per_km`: `1000 / mean(gap_speed)` — the pace equivalent of the mean grade-adjusted speed, not the mean of per-record GAP paces
+- `grade_adjusted_efficiency_factor`: `mean(gap_speed) × 60 / avg_hr` (m/min per BPM, matching `efficiency_factor`); null when no HR is available
 
 - Polynomial is a Strava-style approximation; higher-fidelity models are possible
-- Requires: altitude stream (`enhanced_altitude` or `altitude`) + pace stream
+- Requires: speed + altitude (`enhanced_altitude` or `altitude`) + distance streams, ≥ 2 records each
