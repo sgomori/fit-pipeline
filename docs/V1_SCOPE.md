@@ -119,7 +119,12 @@ The FIT fixture file for testing should be prepared early — it's needed for te
 
 ## Repository visibility
 
-Private during initial development. Made public when the codebase represents the project well and before it's referenced in a job application or linked from the Training Insights README.
+Public, under the MIT license (see `LICENSE` at the repository root). The
+Training Insights Rails application that consumes this pipeline is public under
+the same terms at https://github.com/sgomori/training-insights.
+
+The n8n workflow repository (training-insights-n8n) remains private while it is
+still in development.
 
 ## When v1 is "done"
 

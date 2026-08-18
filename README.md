@@ -133,8 +133,8 @@ fit-pipeline supports two invocation modes:
 
 ## Related projects
 
-- [training-insights](link-tbd) — the Rails MCP server and web frontend that consumes this pipeline's webhook output
-- [training-insights-n8n](link-tbd) — n8n workflow definitions for automating pipeline execution
+- [training-insights](https://github.com/sgomori/training-insights) — the Rails MCP server and web frontend that consumes this pipeline's webhook output
+- training-insights-n8n — n8n workflow definitions for automating pipeline execution. Still in active development and not yet public.
 
 ## Contributing
 
@@ -142,4 +142,4 @@ See `CONTRIBUTING.md` for contribution guidelines. Bug reports and fixes are wel
 
 ## License
 
-To be determined before the repository is made public.
+MIT — see [LICENSE](LICENSE).

@@ -54,6 +54,7 @@ fit-pipeline/
     server.md               # HTTP endpoint documentation
   .env.example              # Configuration template
   CONTRIBUTING.md
+  LICENSE                   # MIT
   README.md
 ```
 
@@ -471,7 +472,7 @@ Unresolved — surface before deciding silently:
 
 ## Relationship to training-insights
 
-The Training Insights Rails application (separate repo) is one consumer of this pipeline. It expects the payload shape documented above and is configured as one entry in `WEBHOOK_DESTINATIONS`, authenticating with that destination's own secret. Additional destinations (e.g. a logging sink) can be added without affecting it.
+The Training Insights Rails application (https://github.com/sgomori/training-insights) is one consumer of this pipeline. It expects the payload shape documented above and is configured as one entry in `WEBHOOK_DESTINATIONS`, authenticating with that destination's own secret. Additional destinations (e.g. a logging sink) can be added without affecting it.
 
 Changes to the payload schema that affect Training Insights require coordinated updates in both repos. The `schema_version` field is the mechanism for managing this evolution.
 
